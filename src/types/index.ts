@@ -1,0 +1,380 @@
+import type { JSONContent } from '@tiptap/react'
+
+// ── Project & Chapter ──
+
+export interface Project {
+  id: string
+  title: string
+  description: string
+  genre: string
+  synopsis: string
+  createdAt: number
+  updatedAt: number
+  settings: ProjectSettings
+  folderPath?: string    // Local folder path (Electron only)
+}
+
+export interface ProjectSettings {
+  language: 'en' | 'ko'
+  targetDailyWords: number
+  readingSpeedCPM: number
+}
+
+export interface Chapter {
+  id: string
+  projectId: string
+  title: string
+  order: number
+  parentId: string | null
+  type: 'volume' | 'chapter'
+  content: JSONContent | null
+  synopsis: string
+  wordCount: number
+  createdAt: number
+  updatedAt: number
+  isExpanded?: boolean
+}
+
+export interface ChapterTreeItem extends Chapter {
+  children: ChapterTreeItem[]
+}
+
+// ── Onion Node (Editor Layers) ──
+
+export interface OnionNode {
+  id: string
+  projectId: string
+  chapterId: string
+  parentId: string | null
+  title: string
+  content: string
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface OnionNodeTreeItem extends OnionNode {
+  children: OnionNodeTreeItem[]
+  depth: number
+}
+
+// ── Word Count ──
+
+export interface WordCountStats {
+  characters: number
+  charactersNoSpaces: number
+  words: number
+  pages200: number
+  pagesA4: number
+  pagesNovel: number
+  readingTimeMin: number
+}
+
+export interface DailyStats {
+  date: string
+  projectId: string
+  wordsWritten: number
+  timeSpentMin: number
+}
+
+// ── Canvas Node System ──
+
+export type CanvasNodeType =
+  | 'character' | 'event' | 'wiki'
+  | 'personality' | 'appearance' | 'memory'
+  | 'pov' | 'pacing' | 'style_transfer'
+  | 'storyteller' | 'summarizer'
+  | 'save_story'
+  | 'what_if' | 'show_dont_tell' | 'tikitaka'
+  | 'cliffhanger' | 'virtual_reader'
+  | 'emotion_tracker' | 'foreshadow_detector' | 'conflict_defense'
+  | 'group'
+  | (string & {})   // Allow custom node types from plugins
+
+export type CanvasNodeCategory = 'context' | 'direction' | 'processing' | 'special' | 'detector' | 'structure' | 'output'
+
+export interface CanvasNode {
+  id: string
+  projectId: string
+  parentCanvasId: string | null
+  type: CanvasNodeType
+  position: { x: number; y: number }
+  data: Record<string, any>
+  width?: number
+  height?: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CanvasWire {
+  id: string
+  projectId: string
+  parentCanvasId: string | null
+  sourceNodeId: string
+  targetNodeId: string
+  sourceHandle: string
+  targetHandle: string
+}
+
+// ── Characters ──
+
+export interface Character {
+  id: string
+  projectId: string
+  name: string
+  aliases: string[]
+  role: 'protagonist' | 'antagonist' | 'supporting' | 'minor'
+  personality: string
+  abilities: string
+  appearance: string
+  background: string
+  motivation: string
+  speechPattern: string
+  imageUrl: string
+  tags: string[]
+  notes: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CharacterRelation {
+  id: string
+  projectId: string
+  sourceId: string
+  targetId: string
+  relationType: string
+  description: string
+  isBidirectional: boolean
+}
+
+// ── World Building ──
+
+export type WorldSettingCategory = 'magic' | 'technology' | 'geography' | 'politics' | 'culture' | 'history' | 'religion' | 'economy' | 'language' | 'species' | 'society' | 'disease' | 'other'
+
+export interface WorldSetting {
+  id: string
+  projectId: string
+  category: WorldSettingCategory
+  title: string
+  content: string
+  tags: string[]
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
+// ── Items ──
+
+export type ItemType = 'weapon' | 'armor' | 'consumable' | 'food' | 'accessory' | 'tool' | 'material' | 'other'
+export type ItemRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'unique'
+
+export interface Item {
+  id: string
+  projectId: string
+  name: string
+  itemType: ItemType
+  rarity: ItemRarity
+  effect: string
+  description: string
+  owner: string
+  tags: string[]
+  notes: string
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
+// ── Reference Data ──
+
+export type ReferenceCategory = 'reference' | 'style_sample' | 'series' | 'worldbase' | 'mood' | 'other'
+
+export interface ReferenceAttachment {
+  name: string
+  data: string
+  mimeType: string
+}
+
+export interface ReferenceData {
+  id: string
+  projectId: string
+  category: ReferenceCategory
+  title: string
+  content: string
+  sourceUrl: string
+  attachments: ReferenceAttachment[]
+  tags: string[]
+  useAsContext: boolean
+  notes: string
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
+// ── Foreshadowing ──
+
+export interface Foreshadow {
+  id: string
+  projectId: string
+  title: string
+  description: string
+  status: 'planted' | 'hinted' | 'resolved' | 'abandoned'
+  plantedChapterId: string | null
+  resolvedChapterId: string | null
+  importance: 'low' | 'medium' | 'high' | 'critical'
+  tags: string[]
+  notes: string
+  createdAt: number
+  updatedAt: number
+}
+
+// ── Wiki ──
+
+export type WikiCategory = WorldSettingCategory | 'character' | 'item' | 'custom'
+
+export interface WikiEntry {
+  id: string
+  projectId: string
+  category: WikiCategory
+  title: string
+  content: string
+  tags: string[]
+  linkedEntityId?: string
+  linkedEntityType?: EntityType
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
+// ── Emotion Tracking ──
+
+export interface EmotionLog {
+  id: string
+  projectId: string
+  characterId: string
+  chapterId: string
+  emotion: string
+  intensity: number // -100 to 100
+  timestamp: number
+}
+
+// ── Story Summary ──
+
+export interface StorySummary {
+  id: string
+  projectId: string
+  chapterId: string
+  summary: string
+  activeHooks: string[]
+  createdAt: number
+}
+
+// ── AI Integration ──
+
+export type AIProvider = 'openai' | 'anthropic' | 'gemini' | 'llama' | 'grok'
+
+export interface AIConfig {
+  provider: AIProvider
+  apiKey: string
+  model: string
+  enabled: boolean
+  baseUrl?: string
+}
+
+export interface AIToolCall {
+  id: string
+  name: string
+  arguments: Record<string, any>
+}
+
+export interface AIToolResult {
+  toolCallId: string
+  success: boolean
+  result: string
+}
+
+export interface AIAttachment {
+  type: 'image' | 'file'
+  name: string
+  data: string
+  mimeType: string
+}
+
+export interface AIMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system' | 'tool'
+  content: string
+  provider?: AIProvider
+  toolCalls?: AIToolCall[]
+  toolResults?: AIToolResult[]
+  attachments?: AIAttachment[]
+  conversationId?: string
+  timestamp: number
+}
+
+export interface AIConversation {
+  id: string
+  projectId: string
+  title: string
+  messages: AIMessage[]
+  createdAt: number
+  usedProviders?: AIProvider[]
+}
+
+export interface PromptTemplate {
+  id: string
+  name: string
+  prompt: string
+  category: 'writing' | 'analysis' | 'worldbuilding' | 'character' | 'custom' | 'action'
+}
+
+// ── Version Management ──
+
+export interface Snapshot {
+  id: string
+  projectId: string
+  chapterId: string
+  chapterTitle: string
+  content: JSONContent | null
+  wordCount: number
+  label: string
+  createdAt: number
+  backupData?: {
+    chapters: { id: string; title: string; synopsis: string; content: any; wordCount: number; parentId: string | null; type: 'volume' | 'chapter'; order: number }[]
+    characters: Character[]
+    worldSettings: WorldSetting[]
+    relations: CharacterRelation[]
+    foreshadows: Foreshadow[]
+    items?: Item[]
+    referenceData?: ReferenceData[]
+    onionNodes?: OnionNode[]
+  }
+}
+
+export interface TimelineSnapshot {
+  id: string
+  projectId: string
+  label: string
+  canvasData: string       // JSON: { nodes: CanvasNode[], wires: CanvasWire[] }
+  manuscriptData: string   // JSON: Chapter[] (content included)
+  wikiData: string         // JSON: WikiEntry[]
+  worldData: string        // JSON: { characters, worldSettings, items, foreshadows, relations }
+  createdAt: number
+}
+
+export type EntityType = 'chapter' | 'character' | 'world_setting' | 'item' | 'reference_data' | 'foreshadow' | 'outline' | 'relation'
+
+export interface EntityVersion {
+  id: string
+  projectId: string
+  entityType: EntityType
+  entityId: string
+  versionNumber: number
+  data: Record<string, unknown>
+  label: string
+  createdBy: 'user' | 'ai'
+  createdAt: number
+}
+
+// ── UI Types ──
+
+export type SidebarTab = 'projects' | 'chapters' | 'search' | 'onionMap'

@@ -1,0 +1,517 @@
+@import "tailwindcss";
+
+/* ── Default theme vars (Notion Light) ── */
+@theme {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f7f6f3;
+  --color-bg-tertiary: #efeee9;
+  --color-bg-surface: #ffffff;
+  --color-bg-hover: #f1f1ef;
+  --color-bg-active: #e8e7e4;
+  --color-text-primary: #37352f;
+  --color-text-secondary: #6b6b60;
+  --color-text-muted: #9b9a97;
+  --color-border: #e3e2de;
+  --color-border-focus: #2eaadc;
+  --color-accent: #2eaadc;
+  --color-accent-hover: #2496c4;
+  --color-accent-dim: #e8f4f8;
+  --color-success: #2da44e;
+  --color-warning: #bf8700;
+  --color-error: #cf222e;
+  --color-dialogue: #9065b0;
+  --color-narration: #0b6e99;
+  --color-node-context: #4a90d9;
+  --color-node-direction: #e6a23c;
+  --color-node-processing: #67c23a;
+  --color-node-special: #f56c6c;
+  --color-node-detector: #909399;
+}
+
+/* ── Theme: Light (Notion-like, default) ── */
+[data-theme="light"] {
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f7f6f3;
+  --color-bg-tertiary: #efeee9;
+  --color-bg-surface: #ffffff;
+  --color-bg-hover: #f1f1ef;
+  --color-bg-active: #e8e7e4;
+  --color-text-primary: #37352f;
+  --color-text-secondary: #6b6b60;
+  --color-text-muted: #9b9a97;
+  --color-border: #e3e2de;
+  --color-border-focus: #2eaadc;
+  --color-accent: #2eaadc;
+  --color-accent-hover: #2496c4;
+  --color-accent-dim: #e8f4f8;
+  --color-success: #2da44e;
+  --color-warning: #bf8700;
+  --color-error: #cf222e;
+  --color-dialogue: #9065b0;
+  --color-narration: #0b6e99;
+  --color-node-context: #4a90d9;
+  --color-node-direction: #e6a23c;
+  --color-node-processing: #67c23a;
+  --color-node-special: #f56c6c;
+  --color-node-detector: #909399;
+}
+
+/* ── Theme: Dark (Notion Dark) ── */
+[data-theme="dark"] {
+  --color-bg-primary: #191919;
+  --color-bg-secondary: #202020;
+  --color-bg-tertiary: #161616;
+  --color-bg-surface: #262626;
+  --color-bg-hover: #2c2c2c;
+  --color-bg-active: #333333;
+  --color-text-primary: #e3e2de;
+  --color-text-secondary: #9b9a97;
+  --color-text-muted: #6b6b60;
+  --color-border: #2f2f2f;
+  --color-border-focus: #529cca;
+  --color-accent: #529cca;
+  --color-accent-hover: #6db3d6;
+  --color-accent-dim: #1e2d3a;
+  --color-success: #4caf7c;
+  --color-warning: #d4a546;
+  --color-error: #e06c75;
+  --color-dialogue: #b48eda;
+  --color-narration: #56b6c2;
+  --color-node-context: #5b9bd5;
+  --color-node-direction: #f0b849;
+  --color-node-processing: #7dd945;
+  --color-node-special: #ff7875;
+  --color-node-detector: #a0a4a8;
+}
+
+/* ── Theme: Black (OLED) ── */
+[data-theme="black"] {
+  --color-bg-primary: #000000;
+  --color-bg-secondary: #0a0a0a;
+  --color-bg-tertiary: #050505;
+  --color-bg-surface: #141414;
+  --color-bg-hover: #1a1a1a;
+  --color-bg-active: #222222;
+  --color-text-primary: #e3e2de;
+  --color-text-secondary: #9b9a97;
+  --color-text-muted: #5a5a54;
+  --color-border: #1a1a1a;
+  --color-border-focus: #529cca;
+  --color-accent: #529cca;
+  --color-accent-hover: #6db3d6;
+  --color-accent-dim: #151f28;
+  --color-success: #4caf7c;
+  --color-warning: #d4a546;
+  --color-error: #e06c75;
+  --color-dialogue: #b48eda;
+  --color-narration: #56b6c2;
+  --color-node-context: #5b9bd5;
+  --color-node-direction: #f0b849;
+  --color-node-processing: #7dd945;
+  --color-node-special: #ff7875;
+  --color-node-detector: #a0a4a8;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary m-0 p-0 overflow-hidden;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  }
+}
+
+/* TipTap Editor Styles */
+.tiptap {
+  outline: none;
+  min-height: 100%;
+  padding: 2rem 0;
+  font-family: 'Georgia', 'Noto Serif KR', 'Noto Serif', serif;
+  color: var(--color-text-primary);
+}
+
+.tiptap p {
+  margin: 0.4em 0;
+  line-height: 1.8;
+  font-size: 1rem;
+}
+
+.tiptap h1 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 1.875rem;
+  font-weight: 700;
+  margin: 2em 0 0.5em;
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.tiptap h2 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 1.5em 0 0.4em;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.tiptap h3 {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 1.2em 0 0.3em;
+  color: var(--color-text-secondary);
+}
+
+.tiptap hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 2em 0;
+}
+
+.tiptap ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin: 0.4em 0;
+}
+
+.tiptap ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin: 0.4em 0;
+}
+
+.tiptap li {
+  line-height: 1.8;
+  margin: 0.1em 0;
+}
+
+.tiptap li p {
+  margin: 0;
+}
+
+.tiptap ul ul {
+  list-style-type: circle;
+}
+
+.tiptap ul ul ul {
+  list-style-type: square;
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  color: var(--color-text-muted);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.tiptap [data-type="dialogue"] {
+  padding-left: 1.5rem;
+  border-left: 3px solid var(--color-dialogue);
+  color: var(--color-dialogue);
+  margin: 0.5em 0;
+}
+
+.tiptap [data-type="narration"] {
+  padding-left: 1.5rem;
+  border-left: 3px solid var(--color-narration);
+  color: var(--color-narration);
+  font-style: italic;
+  margin: 0.5em 0;
+}
+
+.tiptap .is-empty::before {
+  color: var(--color-text-muted);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Block handle (drag + actions) */
+.block-handle {
+  position: absolute;
+  left: -2rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: grab;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.1s;
+}
+
+.block-handle:hover {
+  opacity: 1;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.block-handle:active {
+  cursor: grabbing;
+}
+
+.editor-with-handles:hover .block-handle {
+  opacity: 0.4;
+}
+
+.editor-with-handles:hover .block-handle:hover {
+  opacity: 1;
+}
+
+/* Block action menu */
+.block-action-menu {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  min-width: 180px;
+}
+
+/* Bubble toolbar (inline formatting) */
+.bubble-toolbar {
+  position: absolute;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.bubble-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  border: none;
+  background: transparent;
+}
+
+.bubble-toolbar-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.bubble-toolbar-btn.is-active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+/* Link styles in editor */
+.tiptap a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: text;
+}
+
+/* Highlight styles */
+.tiptap mark {
+  background: color-mix(in srgb, var(--color-warning) 30%, transparent);
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+/* Synopsis preview in sidebar */
+.synopsis-preview p {
+  margin: 0;
+}
+
+.synopsis-preview ul,
+.synopsis-preview ol {
+  padding-left: 1.2rem;
+  margin: 0.2em 0;
+}
+
+.synopsis-preview li {
+  margin: 0;
+}
+
+/* Focus mode */
+.focus-mode .tiptap {
+  max-width: 42rem;
+  margin: 0 auto;
+  font-size: 1.1rem;
+  line-height: 2;
+}
+
+/* Slash menu */
+.slash-menu {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  min-width: 220px;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.slash-menu-item:hover,
+.slash-menu-item.is-selected {
+  background: var(--color-bg-hover);
+}
+
+.slash-menu-item .icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--color-text-muted);
+}
+
+/* ReactFlow / xyflow dark theme overrides */
+.react-flow__background {
+  background: var(--color-bg-primary) !important;
+}
+
+.react-flow__controls button {
+  background: var(--color-bg-surface) !important;
+  border-color: var(--color-border) !important;
+  fill: var(--color-text-muted) !important;
+}
+
+.react-flow__controls button:hover {
+  background: var(--color-bg-hover) !important;
+}
+
+.react-flow__edge-textbg {
+  fill: var(--color-bg-primary) !important;
+}
+
+/* ── Onion Heading (Virtual Fractal) ── */
+.tiptap [data-type="onion-heading"] {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.tiptap [data-type="onion-heading"] > div {
+  font-family: inherit;
+  font-size: calc(1em + 1pt);
+  font-weight: 700;
+  margin: 0.8em 0 0.3em;
+  padding-left: 0.8rem;
+  color: var(--color-text-primary);
+  flex: 1;
+}
+
+/* Border-left color per depth level */
+.tiptap [data-onion-level="1"] > div { border-left: 3px solid var(--color-accent); }
+.tiptap [data-onion-level="2"] > div { border-left: 3px solid var(--color-success); }
+.tiptap [data-onion-level="3"] > div { border-left: 2px solid var(--color-warning); }
+.tiptap [data-onion-level="4"] > div { border-left: 2px solid var(--color-text-muted); }
+
+/* Fold toggle button */
+.onion-fold-toggle {
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  padding: 2px;
+  line-height: 1;
+  user-select: none;
+  flex-shrink: 0;
+}
+.onion-fold-toggle:hover {
+  color: var(--color-accent);
+}
+
+/* Onion level label badge */
+.onion-level-label {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  background: var(--color-bg-hover);
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* Folded content */
+.onion-folded {
+  height: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  min-height: 0 !important;
+}
+
+/* Border left width utility */
+.border-l-3 {
+  border-left-width: 3px;
+}
+
+/* ── Canvas Node styles ── */
+.canvas-node {
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  min-width: 180px;
+}
+
+.canvas-node-header {
+  padding: 6px 10px;
+  border-radius: 7px 7px 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+}
+
+.canvas-node-body {
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}

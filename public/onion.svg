@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Onion body -->
+  <ellipse cx="32" cy="40" rx="18" ry="16" fill="#e8d5b7"/>
+  <ellipse cx="32" cy="40" rx="14" ry="13" fill="#f0e2c8"/>
+  <ellipse cx="32" cy="40" rx="9" ry="10" fill="#f7edda"/>
+  <!-- Onion top point -->
+  <path d="M32 8 C28 20, 20 28, 20 36 C20 36, 26 30, 32 24 C38 30, 44 36, 44 36 C44 28, 36 20, 32 8Z" fill="#c4a76c"/>
+  <!-- Sprout -->
+  <path d="M30 10 C30 4, 32 2, 32 2 C32 2, 34 4, 34 10" stroke="#7ab648" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M28 14 C26 8, 28 4, 29 3" stroke="#7ab648" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M36 14 C38 8, 36 4, 35 3" stroke="#7ab648" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- Root lines -->
+  <path d="M28 55 C28 58, 27 60, 26 62" stroke="#c4a76c" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M32 56 C32 59, 32 61, 32 63" stroke="#c4a76c" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M36 55 C36 58, 37 60, 38 62" stroke="#c4a76c" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+</svg>
