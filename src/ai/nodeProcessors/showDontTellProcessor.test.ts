@@ -43,7 +43,7 @@ describe('processShowDontTell', () => {
     vi.mocked(useAIStore.getState).mockReturnValueOnce({
       activeProviders: [],
       configs: {},
-    } as ReturnType<typeof useAIStore.getState>)
+    } as unknown as ReturnType<typeof useAIStore.getState>)
 
     await expect(processShowDontTell('some text')).rejects.toThrow(
       '활성화된 AI 프로바이더가 없습니다.',

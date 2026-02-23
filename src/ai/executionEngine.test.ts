@@ -131,7 +131,7 @@ describe('executeCanvas', () => {
     await executeCanvas(callback)
 
     // Only the storyteller node should produce callbacks
-    const calledNodeIds = callback.mock.calls.map((call: [string, NodeOutput]) => call[0])
+    const calledNodeIds = callback.mock.calls.map((call: unknown[]) => call[0])
     expect(calledNodeIds).not.toContain('char-1')
     expect(calledNodeIds).not.toContain('evt-1')
     expect(calledNodeIds).not.toContain('pov-1')

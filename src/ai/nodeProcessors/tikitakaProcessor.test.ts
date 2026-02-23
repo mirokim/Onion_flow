@@ -67,7 +67,7 @@ describe('processTikitaka', () => {
     vi.mocked(useAIStore.getState).mockReturnValueOnce({
       activeProviders: [],
       configs: {},
-    } as ReturnType<typeof useAIStore.getState>)
+    } as unknown as ReturnType<typeof useAIStore.getState>)
 
     await expect(
       processTikitaka(['c1', 'c2'], 'topic', 'context'),

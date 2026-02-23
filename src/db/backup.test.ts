@@ -338,11 +338,11 @@ describe('backup', () => {
       }
 
       vi.spyOn(document, 'createElement').mockReturnValue(createdElement as any)
-      vi.spyOn(document.body, 'appendChild').mockImplementation(mockAppendChild)
-      vi.spyOn(document.body, 'removeChild').mockImplementation(mockRemoveChild)
+      vi.spyOn(document.body, 'appendChild').mockImplementation(mockAppendChild as any)
+      vi.spyOn(document.body, 'removeChild').mockImplementation(mockRemoveChild as any)
 
-      global.URL.createObjectURL = mockCreateObjectURL
-      global.URL.revokeObjectURL = mockRevokeObjectURL
+      global.URL.createObjectURL = mockCreateObjectURL as any
+      global.URL.revokeObjectURL = mockRevokeObjectURL as any
     })
 
     it('should create a Blob with correct JSON content', () => {

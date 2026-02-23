@@ -117,11 +117,9 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateCharacter: async (id, updates) => {
-    const merged = { ...updates, updatedAt: nowUTC() }
+    const merged = withUpdatedAt(updates)
     await getAdapter().updateCharacter(id, merged)
-    set(s => ({
-      characters: s.characters.map(c => c.id === id ? { ...c, ...merged } : c),
-    }))
+    set(s => ({ characters: mapUpdate(s.characters, id, merged) }))
   },
 
   deleteCharacter: async (id) => {
@@ -178,9 +176,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
 
   updateRelation: async (id, updates) => {
     await getAdapter().updateRelation(id, updates)
-    set(s => ({
-      relations: s.relations.map(r => r.id === id ? { ...r, ...updates } : r),
-    }))
+    set(s => ({ relations: mapUpdate(s.relations, id, updates) }))
   },
 
   deleteRelation: async (id) => {
@@ -220,11 +216,9 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateWorldSetting: async (id, updates) => {
-    const merged = { ...updates, updatedAt: nowUTC() }
+    const merged = withUpdatedAt(updates)
     await getAdapter().updateWorldSetting(id, merged)
-    set(s => ({
-      worldSettings: s.worldSettings.map(w => w.id === id ? { ...w, ...merged } : w),
-    }))
+    set(s => ({ worldSettings: mapUpdate(s.worldSettings, id, merged) }))
   },
 
   deleteWorldSetting: async (id) => {
@@ -268,11 +262,9 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateItem: async (id, updates) => {
-    const merged = { ...updates, updatedAt: nowUTC() }
+    const merged = withUpdatedAt(updates)
     await getAdapter().updateItem(id, merged)
-    set(s => ({
-      items: s.items.map(i => i.id === id ? { ...i, ...merged } : i),
-    }))
+    set(s => ({ items: mapUpdate(s.items, id, merged) }))
   },
 
   deleteItem: async (id) => {
@@ -321,11 +313,9 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateReferenceData: async (id, updates) => {
-    const merged = { ...updates, updatedAt: nowUTC() }
+    const merged = withUpdatedAt(updates)
     await getAdapter().updateReferenceData(id, merged)
-    set(s => ({
-      referenceData: s.referenceData.map(r => r.id === id ? { ...r, ...merged } : r),
-    }))
+    set(s => ({ referenceData: mapUpdate(s.referenceData, id, merged) }))
   },
 
   deleteReferenceData: async (id) => {
@@ -371,11 +361,9 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateForeshadow: async (id, updates) => {
-    const merged = { ...updates, updatedAt: nowUTC() }
+    const merged = withUpdatedAt(updates)
     await getAdapter().updateForeshadow(id, merged)
-    set(s => ({
-      foreshadows: s.foreshadows.map(f => f.id === id ? { ...f, ...merged } : f),
-    }))
+    set(s => ({ foreshadows: mapUpdate(s.foreshadows, id, merged) }))
   },
 
   deleteForeshadow: async (id) => {

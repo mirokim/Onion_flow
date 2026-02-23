@@ -14,8 +14,8 @@ import type { Project, Chapter, CanvasNode, CanvasWire, WikiEntry } from '@/type
 
 // ── Mocks ──
 
-const mockWriteProjectFile = vi.fn(async () => {})
-const mockReadProjectFile = vi.fn()
+const mockWriteProjectFile = vi.fn<(path: string, filename: string, content: string) => Promise<void>>(async () => {})
+const mockReadProjectFile = vi.fn<(path: string, filename: string) => Promise<{ success: boolean; data?: string }>>()
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -250,7 +250,7 @@ describe('projectSerializer', () => {
     })
 
     it('should return error when project.json is not found', async () => {
-      mockReadProjectFile.mockResolvedValueOnce({ success: false, data: null })
+      mockReadProjectFile.mockResolvedValueOnce({ success: false, data: undefined })
 
       const result = await loadProjectFromFolder('/test/path')
 

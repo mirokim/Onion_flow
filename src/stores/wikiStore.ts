@@ -67,10 +67,9 @@ export const useWikiStore = create<WikiState>((set, get) => ({
   },
 
   updateEntry: async (id, updates) => {
-    await getAdapter().updateWikiEntry(id, updates)
-    set(s => ({
-      entries: s.entries.map(e => e.id === id ? { ...e, ...updates, updatedAt: nowUTC() } : e),
-    }))
+    const merged = withUpdatedAt(updates)
+    await getAdapter().updateWikiEntry(id, merged)
+    set(s => ({ entries: mapUpdate(s.entries, id, merged) }))
   },
 
   deleteEntry: async (id) => {

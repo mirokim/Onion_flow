@@ -119,7 +119,7 @@ describe('wikiStore', () => {
 
       await useWikiStore.getState().updateEntry('test-id-1', { title: 'Updated Magic' })
 
-      expect(mockAdapter.updateWikiEntry).toHaveBeenCalledWith('test-id-1', { title: 'Updated Magic' })
+      expect(mockAdapter.updateWikiEntry).toHaveBeenCalledWith('test-id-1', { title: 'Updated Magic', updatedAt: 1700000000000 })
       const entry = useWikiStore.getState().entries[0]
       expect(entry.title).toBe('Updated Magic')
       expect(entry.updatedAt).toBe(1700000000000)
