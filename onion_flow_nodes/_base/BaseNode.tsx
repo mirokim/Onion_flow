@@ -11,6 +11,9 @@ import { useWikiStore } from '@/stores/wikiStore'
 import { cn } from '@/lib/utils'
 import type { WikiCategory } from '@/types'
 import type { WikiEntry } from '@/types'
+import { ImageLoadBody } from './ImageLoadBody'
+import { DocumentLoadBody } from './DocumentLoadBody'
+import { CharacterNodeBody } from './CharacterNodeBody'
 
 interface BaseNodeData {
   label?: string
@@ -60,7 +63,8 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
   return (
     <div
       className={cn(
-        'canvas-node relative overflow-visible rounded-lg shadow-md border-2 min-w-[160px] max-w-[280px]',
+        'canvas-node relative overflow-visible rounded-lg shadow-md border-2 min-w-[160px]',
+        data.nodeType === 'character' ? 'max-w-[320px]' : 'max-w-[280px]',
         'bg-bg-surface text-text-primary',
         selected ? 'border-accent shadow-accent/20' : 'border-border',
         nodeOutput?.status === 'running' && 'border-yellow-500/60',
@@ -128,33 +132,9 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
           </div>
         )}
 
-        {/* Character: Position dropdown (kept alongside wiki selector) */}
-        {data.nodeType === 'character' && (
-          <div className="mt-1.5">
-            <select
-              value={data.position || 'neutral'}
-              onChange={(e) => {
-                e.stopPropagation()
-                if (data.nodeId) {
-                  useCanvasStore.getState().updateNodeData(data.nodeId, { position: e.target.value })
-                }
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
-            >
-              <option value="neutral">중립</option>
-              <option value="rival">라이벌</option>
-              <option value="villain">악역</option>
-              <option value="friend">친구</option>
-              <option value="mentor">멘토</option>
-              <option value="sidekick">조수/파트너</option>
-              <option value="love_interest">연인</option>
-              <option value="family">가족</option>
-              <option value="subordinate">부하</option>
-              <option value="custom">기타</option>
-            </select>
-          </div>
+        {/* Character: Position + embedded personality/appearance/memory cards */}
+        {data.nodeType === 'character' && data.nodeId && (
+          <CharacterNodeBody data={data} nodeId={data.nodeId} />
         )}
 
         {/* Plot: Description display */}
@@ -162,6 +142,16 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
           <div className="mt-1.5">
             <p className="text-[10px] text-text-muted leading-relaxed">{data.description}</p>
           </div>
+        )}
+
+        {/* Image Load: thumbnail grid + upload */}
+        {data.nodeType === 'image_load' && data.nodeId && (
+          <ImageLoadBody data={data} nodeId={data.nodeId} selected={!!selected} />
+        )}
+
+        {/* Document Load: document list + upload */}
+        {data.nodeType === 'document_load' && data.nodeId && (
+          <DocumentLoadBody data={data} nodeId={data.nodeId} selected={!!selected} />
         )}
 
         {/* Storyteller: Provider dropdown */}

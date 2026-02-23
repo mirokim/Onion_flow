@@ -167,7 +167,22 @@ function extractNodeDataText(node: CanvasNode): string | null {
   switch (node.type) {
     case 'character': {
       const entry = findWikiEntry('character')
-      return entry ? `[캐릭터: ${entry.title}] ${entry.content}` : null
+      const parts: string[] = []
+      if (entry) parts.push(`[캐릭터: ${entry.title}] ${entry.content}`)
+      // Embedded sub-cards (personality, appearance, memory)
+      const embeddedCards = [
+        { key: 'personalityWikiEntryId', label: '성격' },
+        { key: 'appearanceWikiEntryId', label: '외모' },
+        { key: 'memoryWikiEntryId', label: '기억' },
+      ] as const
+      for (const card of embeddedCards) {
+        const id = node.data[card.key]
+        if (id) {
+          const sub = wikiEntries.find(e => e.id === id)
+          if (sub) parts.push(`[${card.label}] ${sub.content}`)
+        }
+      }
+      return parts.length > 0 ? parts.join('\n') : null
     }
     case 'event': {
       const entry = findWikiEntry('event')
@@ -200,6 +215,30 @@ function extractNodeDataText(node: CanvasNode): string | null {
     case 'memory': {
       const entry = findWikiEntry('memory')
       return entry ? `[기억] ${entry.content}` : null
+    }
+    case 'image_load': {
+      const images = (node.data.images || []) as Array<{ name: string }>
+      if (images.length === 0) return null
+      return `[이미지 데이터] ${images.length}개 이미지 첨부됨: ${images.map(i => i.name).join(', ')}`
+    }
+    case 'document_load': {
+      const docs = (node.data.documents || []) as Array<{ name: string; content: string; mimeType: string }>
+      if (docs.length === 0) return null
+      const textParts = docs
+        .filter(d => d.content)
+        .map(d => `[문서: ${d.name}]\n${d.content}`)
+      const pdfNames = docs
+        .filter(d => d.mimeType === 'application/pdf' && !d.content)
+        .map(d => d.name)
+      const parts: string[] = [...textParts]
+      if (pdfNames.length > 0) {
+        parts.push(`[PDF 파일: ${pdfNames.join(', ')}]`)
+      }
+      return parts.length > 0 ? parts.join('\n\n') : null
+    }
+    case 'plot_context': {
+      // plot_context passes through connected plot node data via upstream traversal
+      return null
     }
     default: {
       // Handle plot nodes dynamically

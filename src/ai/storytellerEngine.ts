@@ -15,7 +15,7 @@ import { useProjectStore } from '@/stores/projectStore'
 import { useAIStore } from '@/stores/aiStore'
 import { callWithTools, type ProviderResponse } from './providers'
 import { summarizeContext } from './contextSummarizer'
-import type { CanvasNode, AIProvider } from '@/types'
+import type { CanvasNode, AIProvider, AIAttachment } from '@/types'
 
 interface PromptSegment {
   role: string
@@ -47,10 +47,25 @@ function processNode(node: CanvasNode): PromptSegment | null {
   switch (node.type) {
     case 'character': {
       const entry = findWikiEntry('character')
-      if (!entry) return null
+      const parts: string[] = []
+      if (entry) parts.push(`[캐릭터: ${entry.title}]\n${entry.content}`)
+      // Embedded sub-cards (personality, appearance, memory)
+      const embeddedCards = [
+        { key: 'personalityWikiEntryId', label: '성격 설정' },
+        { key: 'appearanceWikiEntryId', label: '외모 설정' },
+        { key: 'memoryWikiEntryId', label: '기억/배경' },
+      ] as const
+      for (const card of embeddedCards) {
+        const id = node.data[card.key]
+        if (id) {
+          const sub = wikiEntries.find(e => e.id === id)
+          if (sub) parts.push(`[${card.label}]\n${sub.content}`)
+        }
+      }
+      if (parts.length === 0) return null
       return {
         role: 'character_context',
-        content: `[캐릭터: ${entry.title}]\n${entry.content}`,
+        content: parts.join('\n'),
         priority: 10,
       }
     }
@@ -125,6 +140,33 @@ function processNode(node: CanvasNode): PromptSegment | null {
         priority: 10,
       }
     }
+    case 'image_load': {
+      const images = (node.data.images || []) as Array<{ name: string }>
+      if (images.length === 0) return null
+      return {
+        role: 'image_context',
+        content: `[이미지 데이터] ${images.length}개 이미지가 첨부되었습니다 (${images.map(i => i.name).join(', ')}). 이미지를 참고하여 캐릭터의 외모, 분위기, 배경 등을 반영하세요.`,
+        priority: 9,
+      }
+    }
+    case 'document_load': {
+      const docs = (node.data.documents || []) as Array<{ name: string; content: string; mimeType: string }>
+      if (docs.length === 0) return null
+      const textContent = docs
+        .filter(d => d.content)
+        .map(d => `[문서: ${d.name}]\n${d.content}`)
+        .join('\n\n')
+      if (!textContent) return null
+      return {
+        role: 'document_context',
+        content: textContent,
+        priority: 8,
+      }
+    }
+    case 'plot_context': {
+      // plot_context aggregates connected plot nodes via upstream traversal
+      return null
+    }
     default:
       return null
   }
@@ -136,6 +178,47 @@ function processNode(node: CanvasNode): PromptSegment | null {
 function collectUpstreamNodes(storytellerNodeId: string): CanvasNode[] {
   const canvasStore = useCanvasStore.getState()
   return canvasStore.getUpstreamNodes(storytellerNodeId)
+}
+
+/**
+ * Collect AIAttachment[] from upstream image_load and document_load nodes for multimodal AI.
+ */
+function collectUpstreamAttachments(storytellerNodeId: string): AIAttachment[] {
+  const upstream = collectUpstreamNodes(storytellerNodeId)
+  const attachments: AIAttachment[] = []
+
+  for (const node of upstream) {
+    if (node.type === 'image_load') {
+      const images = (node.data.images || []) as Array<{
+        id: string; name: string; data: string; mimeType: string
+      }>
+      for (const img of images) {
+        attachments.push({
+          type: 'image',
+          name: img.name,
+          data: img.data,
+          mimeType: img.mimeType,
+        })
+      }
+    }
+    if (node.type === 'document_load') {
+      const docs = (node.data.documents || []) as Array<{
+        id: string; name: string; content: string; data?: string; mimeType: string
+      }>
+      for (const doc of docs) {
+        if (doc.mimeType === 'application/pdf' && doc.data) {
+          attachments.push({
+            type: 'file',
+            name: doc.name,
+            data: doc.data,
+            mimeType: 'application/pdf',
+          })
+        }
+      }
+    }
+  }
+
+  return attachments
 }
 
 /**
@@ -186,6 +269,7 @@ export function buildStorytellerPrompt(storytellerNodeId: string): string {
  */
 export async function runStoryteller(storytellerNodeId: string): Promise<string> {
   const prompt = buildStorytellerPrompt(storytellerNodeId)
+  const attachments = collectUpstreamAttachments(storytellerNodeId)
   const aiStore = useAIStore.getState()
   const canvasStore = useCanvasStore.getState()
 
@@ -203,6 +287,11 @@ export async function runStoryteller(storytellerNodeId: string): Promise<string>
     { role: 'user', content: '위 설정을 바탕으로 소설 본문을 이어 작성해 주세요.' },
   ]
 
-  const response: ProviderResponse = await callWithTools(config, messages, false)
+  const response: ProviderResponse = await callWithTools(
+    config,
+    messages,
+    false,
+    attachments.length > 0 ? attachments : undefined,
+  )
   return response.content
 }
