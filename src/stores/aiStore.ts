@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
 import type { AIConfig, AIMessage, AIProvider, PromptTemplate, AIConversation } from '@/types'
 import { generateId } from '@/lib/utils'
+import { nowUTC } from '@/lib/dateUtils'
 import { getAdapter } from '@/db/storageAdapter'
 
 interface AIState {
@@ -191,7 +192,7 @@ export const useAIStore = create<AIState>()(
           id: generateId(),
           role: 'user',
           content,
-          timestamp: Date.now(),
+          timestamp: nowUTC(),
         }
         set(s => ({ messages: [...s.messages, userMsg] }))
 
@@ -202,7 +203,7 @@ export const useAIStore = create<AIState>()(
           role: 'assistant',
           content: '[AI 통합은 Phase 6에서 구현됩니다]',
           provider,
-          timestamp: Date.now(),
+          timestamp: nowUTC(),
         }
         set(s => ({ messages: [...s.messages, placeholderMsg] }))
       },
@@ -226,7 +227,7 @@ export const useAIStore = create<AIState>()(
           projectId,
           title: title || '새 대화',
           messages: [],
-          createdAt: Date.now(),
+          createdAt: nowUTC(),
         }
         await getAdapter().insertConversation(conv)
         set(s => ({

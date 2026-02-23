@@ -4,6 +4,7 @@
 import { getAdapter } from './storageAdapter'
 import type { Project, Chapter, Character, CharacterRelation, WorldSetting, Foreshadow, Item, ReferenceData, EntityVersion, AIConversation, AIMessage, OnionNode } from '@/types'
 import { z } from 'zod/v4'
+import { nowUTC } from '@/lib/dateUtils'
 
 // ── Zod schemas for backup validation ──
 
@@ -146,7 +147,7 @@ export async function exportProject(projectId: string): Promise<ProjectBackup | 
 
   return {
     version: 1,
-    exportedAt: Date.now(),
+    exportedAt: nowUTC(),
     project,
     chapters,
     characters,
@@ -174,7 +175,7 @@ export async function exportAllProjects(): Promise<FullBackup> {
   }
   return {
     version: 1,
-    exportedAt: Date.now(),
+    exportedAt: nowUTC(),
     projects: backups,
   }
 }

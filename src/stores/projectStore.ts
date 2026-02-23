@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { getAdapter } from '@/db/storageAdapter'
 import type { Project, Chapter, ChapterTreeItem } from '@/types'
 import { generateId } from '@/lib/utils'
+import { nowUTC } from '@/lib/dateUtils'
+import { createEntity, withUpdatedAt, mapUpdate } from '@/lib/storeHelpers'
 import type { JSONContent } from '@tiptap/react'
 import { useEditorStore } from './editorStore'
 
@@ -61,26 +63,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   createProject: async (title: string) => {
     const adapter = getAdapter()
-    const project: Project = {
-      id: generateId(),
+    const project = createEntity<Project>({
       title,
       description: '',
       genre: '',
       synopsis: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
       settings: {
         language: 'ko',
         targetDailyWords: 3000,
         readingSpeedCPM: 500,
       },
-    }
+    })
     await adapter.insertProject(project)
     set(s => ({ projects: [project, ...s.projects], currentProject: project, chapters: [], currentChapter: null }))
 
     // Create default first chapter
-    const chapter: Chapter = {
-      id: generateId(),
+    const chapter = createEntity<Chapter>({
       projectId: project.id,
       title: '제 1 화',
       order: 0,
@@ -89,9 +87,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       content: null,
       synopsis: '',
       wordCount: 0,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
+    })
     await adapter.insertChapter(chapter)
     set({ chapters: [chapter], currentChapter: chapter })
 
@@ -127,10 +123,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   updateProject: async (id: string, updates: Partial<Project>) => {
     const adapter = getAdapter()
-    const merged = { ...updates, updatedAt: Date.now() }
+    const merged = withUpdatedAt(updates)
     await adapter.updateProject(id, merged)
     set(s => ({
-      projects: s.projects.map(p => p.id === id ? { ...p, ...merged } : p),
+      projects: mapUpdate(s.projects, id, merged),
       currentProject: s.currentProject?.id === id ? { ...s.currentProject, ...merged } : s.currentProject,
     }))
   },
@@ -171,8 +167,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const siblings = chapters.filter(c => c.parentId === parentId)
     const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(c => c.order)) : -1
 
-    const chapter: Chapter = {
-      id: generateId(),
+    const chapter = createEntity<Chapter>({
       projectId: currentProject.id,
       title,
       order: maxOrder + 1,
@@ -181,9 +176,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       content: null,
       synopsis: '',
       wordCount: 0,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }
+    })
     await adapter.insertChapter(chapter)
     set(s => ({ chapters: [...s.chapters, chapter] }))
     return chapter
@@ -198,20 +191,21 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   updateChapter: async (id: string, updates: Partial<Chapter>) => {
     const adapter = getAdapter()
-    const merged = { ...updates, updatedAt: Date.now() }
+    const merged = withUpdatedAt(updates)
     await adapter.updateChapter(id, merged)
     set(s => ({
-      chapters: s.chapters.map(c => c.id === id ? { ...c, ...merged } : c),
+      chapters: mapUpdate(s.chapters, id, merged),
       currentChapter: s.currentChapter?.id === id ? { ...s.currentChapter, ...merged } : s.currentChapter,
     }))
   },
 
   updateChapterContent: async (id: string, content: JSONContent) => {
     const adapter = getAdapter()
-    await adapter.updateChapter(id, { content, updatedAt: Date.now() })
+    const ts = nowUTC()
+    await adapter.updateChapter(id, { content, updatedAt: ts })
     set(s => ({
-      chapters: s.chapters.map(c => c.id === id ? { ...c, content, updatedAt: Date.now() } : c),
-      currentChapter: s.currentChapter?.id === id ? { ...s.currentChapter, content, updatedAt: Date.now() } : s.currentChapter,
+      chapters: s.chapters.map(c => c.id === id ? { ...c, content, updatedAt: ts } : c),
+      currentChapter: s.currentChapter?.id === id ? { ...s.currentChapter, content, updatedAt: ts } : s.currentChapter,
     }))
   },
 
@@ -225,7 +219,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const children = chapters.filter(c => c.parentId === id)
       set(s => ({
         deletedChapterStack: [
-          { chapter, children, deletedAt: Date.now() },
+          { chapter, children, deletedAt: nowUTC() },
           ...s.deletedChapterStack,
         ].slice(0, 5),
       }))
@@ -273,7 +267,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   reorderChapter: async (id: string, newOrder: number) => {
     const adapter = getAdapter()
-    await adapter.updateChapter(id, { order: newOrder, updatedAt: Date.now() })
+    await adapter.updateChapter(id, { order: newOrder, updatedAt: nowUTC() })
     set(s => ({
       chapters: s.chapters.map(c => c.id === id ? { ...c, order: newOrder } : c),
     }))
@@ -290,10 +284,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const targetSiblings = chapters.filter(c => c.parentId === newParentId && c.id !== id)
     const newOrder = targetSiblings.length > 0 ? Math.max(...targetSiblings.map(c => c.order)) + 1 : 0
 
-    const updates = { parentId: newParentId, order: newOrder, updatedAt: Date.now() }
+    const updates = { parentId: newParentId, order: newOrder, updatedAt: nowUTC() }
     await adapter.updateChapter(id, updates)
     set(s => ({
-      chapters: s.chapters.map(c => c.id === id ? { ...c, ...updates } : c),
+      chapters: mapUpdate(s.chapters, id, updates),
     }))
   },
 
@@ -305,12 +299,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (chapter.type === 'volume' && targetParentId !== null) return
     if (id === targetParentId) return
 
+    const ts = nowUTC()
     const siblings = chapters.filter(c => c.parentId === targetParentId && c.id !== id && c.order >= targetOrder)
     for (const sib of siblings) {
-      await adapter.updateChapter(sib.id, { order: sib.order + 1, updatedAt: Date.now() })
+      await adapter.updateChapter(sib.id, { order: sib.order + 1, updatedAt: ts })
     }
 
-    const updates = { parentId: targetParentId, order: targetOrder, updatedAt: Date.now() }
+    const updates = { parentId: targetParentId, order: targetOrder, updatedAt: ts }
     await adapter.updateChapter(id, updates)
 
     set(s => ({
@@ -329,9 +324,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const { currentProject, chapters } = get()
     if (!currentProject) throw new Error('No project selected')
 
+    const ts = nowUTC()
     const siblings = chapters.filter(c => c.parentId === parentId && c.order >= order)
     for (const sib of siblings) {
-      await adapter.updateChapter(sib.id, { order: sib.order + 1, updatedAt: Date.now() })
+      await adapter.updateChapter(sib.id, { order: sib.order + 1, updatedAt: ts })
     }
 
     const chapter: Chapter = {
@@ -344,8 +340,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       content: null,
       synopsis: '',
       wordCount: 0,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: ts,
+      updatedAt: ts,
     }
     await adapter.insertChapter(chapter)
 

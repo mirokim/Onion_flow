@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { getAdapter } from '@/db/storageAdapter'
 import type { Character, CharacterRelation, WorldSetting, WorldSettingCategory, Foreshadow, Item, ReferenceData, ReferenceCategory } from '@/types'
 import { generateId } from '@/lib/utils'
+import { nowUTC } from '@/lib/dateUtils'
+import { createEntity, withUpdatedAt, mapUpdate } from '@/lib/storeHelpers'
 
 interface WorldState {
   characters: Character[]
@@ -106,8 +108,8 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       imageUrl: '',
       tags: [],
       notes: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: nowUTC(),
+      updatedAt: nowUTC(),
     }
     await getAdapter().insertCharacter(character)
     set(s => ({ characters: [...s.characters, character] }))
@@ -115,7 +117,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateCharacter: async (id, updates) => {
-    const merged = { ...updates, updatedAt: Date.now() }
+    const merged = { ...updates, updatedAt: nowUTC() }
     await getAdapter().updateCharacter(id, merged)
     set(s => ({
       characters: s.characters.map(c => c.id === id ? { ...c, ...merged } : c),
@@ -209,8 +211,8 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       content: '',
       tags: [],
       order: maxOrder,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: nowUTC(),
+      updatedAt: nowUTC(),
     }
     await getAdapter().insertWorldSetting(ws)
     set(s => ({ worldSettings: [...s.worldSettings, ws] }))
@@ -218,7 +220,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateWorldSetting: async (id, updates) => {
-    const merged = { ...updates, updatedAt: Date.now() }
+    const merged = { ...updates, updatedAt: nowUTC() }
     await getAdapter().updateWorldSetting(id, merged)
     set(s => ({
       worldSettings: s.worldSettings.map(w => w.id === id ? { ...w, ...merged } : w),
@@ -257,8 +259,8 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       tags: [],
       notes: '',
       order: maxOrder,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: nowUTC(),
+      updatedAt: nowUTC(),
     }
     await getAdapter().insertItem(item)
     set(s => ({ items: [...s.items, item] }))
@@ -266,7 +268,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateItem: async (id, updates) => {
-    const merged = { ...updates, updatedAt: Date.now() }
+    const merged = { ...updates, updatedAt: nowUTC() }
     await getAdapter().updateItem(id, merged)
     set(s => ({
       items: s.items.map(i => i.id === id ? { ...i, ...merged } : i),
@@ -310,8 +312,8 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       useAsContext: true,
       notes: '',
       order: maxOrder,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: nowUTC(),
+      updatedAt: nowUTC(),
     }
     await getAdapter().insertReferenceData(ref)
     set(s => ({ referenceData: [...s.referenceData, ref] }))
@@ -319,7 +321,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateReferenceData: async (id, updates) => {
-    const merged = { ...updates, updatedAt: Date.now() }
+    const merged = { ...updates, updatedAt: nowUTC() }
     await getAdapter().updateReferenceData(id, merged)
     set(s => ({
       referenceData: s.referenceData.map(r => r.id === id ? { ...r, ...merged } : r),
@@ -360,8 +362,8 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       importance: 'medium',
       tags: [],
       notes: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: nowUTC(),
+      updatedAt: nowUTC(),
     }
     await getAdapter().insertForeshadow(fs)
     set(s => ({ foreshadows: [...s.foreshadows, fs] }))
@@ -369,7 +371,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   updateForeshadow: async (id, updates) => {
-    const merged = { ...updates, updatedAt: Date.now() }
+    const merged = { ...updates, updatedAt: nowUTC() }
     await getAdapter().updateForeshadow(id, merged)
     set(s => ({
       foreshadows: s.foreshadows.map(f => f.id === id ? { ...f, ...merged } : f),

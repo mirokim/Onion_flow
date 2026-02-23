@@ -33,6 +33,7 @@ import type {
 } from '@/types'
 import type { StorageAdapter } from './storageAdapter'
 import { sanitizeRecord } from './backup'
+import { nowUTC } from '@/lib/dateUtils'
 
 // ── IndexedDB helpers for SQLite database persistence ──
 
@@ -627,7 +628,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
         }
         this._run(
           'INSERT INTO _migrations (name, applied_at) VALUES (?, ?)',
-          [migration.name, Date.now()]
+          [migration.name, nowUTC()]
         )
       } catch (err) {
         console.error(`[SQLite] Migration '${migration.name}' failed:`, err)
@@ -1470,7 +1471,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     const rows = this._queryAll('SELECT * FROM onion_nodes WHERE id = ?', [id])
     if (rows.length === 0) return
     const existing = this._rowToOnionNode(rows[0])
-    const merged = { ...existing, ...updates, updatedAt: Date.now() }
+    const merged = { ...existing, ...updates, updatedAt: nowUTC() }
     await this.insertOnionNode(merged)
   }
 
@@ -1608,7 +1609,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       width: existing.width || undefined,
       height: existing.height || undefined,
       createdAt: existing.created_at,
-      updatedAt: Date.now(),
+      updatedAt: nowUTC(),
       ...updates,
     }
     await this.insertCanvasNode(merged)
@@ -1711,7 +1712,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       linkedEntityType: r.linked_entity_type || undefined,
       order: r.order, createdAt: r.created_at, updatedAt: r.updated_at,
     }
-    await this.insertWikiEntry({ ...existing, ...updates, updatedAt: Date.now() })
+    await this.insertWikiEntry({ ...existing, ...updates, updatedAt: nowUTC() })
   }
 
   async deleteWikiEntry(id: string): Promise<void> {

@@ -6,6 +6,7 @@
  */
 import type { Chapter } from '@/types'
 import { formatChapterText, splitByCharLimit, downloadTextFile } from './exportUtils'
+import { nowUTC } from '@/lib/dateUtils'
 
 /**
  * Format a single chapter for Munpia style.
@@ -53,5 +54,5 @@ export function exportForMunpia(chapters: Chapter[]): void {
   }
 
   const output = parts.join('\n\n' + '─'.repeat(40) + '\n\n')
-  downloadTextFile(output, `manuscript_munpia_${Date.now()}.txt`)
+  downloadTextFile(output, `manuscript_munpia_${nowUTC()}.txt`)
 }

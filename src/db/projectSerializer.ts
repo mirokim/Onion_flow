@@ -10,6 +10,7 @@
  */
 import type { Project, Chapter, CanvasNode, CanvasWire, WikiEntry } from '@/types'
 import type { JSONContent } from '@tiptap/react'
+import { nowUTC } from '@/lib/dateUtils'
 
 // ── TipTap JSONContent → Markdown conversion (simplified) ──
 
@@ -186,7 +187,7 @@ export async function saveProjectToFolder(
       synopsis: project.synopsis,
       settings: project.settings,
       createdAt: project.createdAt,
-      updatedAt: Date.now(),
+      updatedAt: nowUTC(),
     }
     await api.writeProjectFile(folderPath, 'project.json', JSON.stringify(projectMeta, null, 2))
 
