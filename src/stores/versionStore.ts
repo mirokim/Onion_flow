@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getAdapter } from '@/db/storageAdapter'
 import type { EntityVersion, EntityType, TimelineSnapshot } from '@/types'
 import { generateId } from '@/lib/utils'
+import { nowUTC } from '@/lib/dateUtils'
 
 interface VersionState {
   versions: EntityVersion[]
@@ -51,7 +52,7 @@ export const useVersionStore = create<VersionState>((set, get) => ({
       data,
       label,
       createdBy,
-      createdAt: Date.now(),
+      createdAt: nowUTC(),
     }
     await adapter.insertVersion(version)
     set(s => ({ versions: [version, ...s.versions] }))
@@ -104,7 +105,7 @@ export const useVersionStore = create<VersionState>((set, get) => ({
         foreshadows: world.foreshadows,
         items: world.items,
       }),
-      createdAt: Date.now(),
+      createdAt: nowUTC(),
     }
 
     await adapter.insertTimelineSnapshot(snapshot)

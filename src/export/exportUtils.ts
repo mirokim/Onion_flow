@@ -84,11 +84,8 @@ export function downloadTextFile(content: string, filename: string): void {
  */
 export function formatDialogue(text: string): string {
   return text
-    // Normalize quotation marks
-    .replace(/"/g, '\u201C')
-    .replace(/"/g, '\u201D')
-    // Ensure dialogue lines start with proper open quote
-    .replace(/^"([^"]*)"$/gm, '\u201C$1\u201D')
+    // Convert paired straight double quotes to curly quotes
+    .replace(/"([^"]*)"/g, '\u201C$1\u201D')
 }
 
 /**

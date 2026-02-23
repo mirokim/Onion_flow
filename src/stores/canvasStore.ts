@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getAdapter } from '@/db/storageAdapter'
 import type { CanvasNode, CanvasWire, CanvasNodeType } from '@/types'
 import { generateId } from '@/lib/utils'
+import { nowUTC } from '@/lib/dateUtils'
 
 export interface NodeOutput {
   status: 'idle' | 'queued' | 'running' | 'completed' | 'error'
@@ -91,8 +92,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       position,
       data: defaultData ? { ...defaultData } : {},
       ...(size ? { width: size.width, height: size.height } : {}),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: nowUTC(),
+      updatedAt: nowUTC(),
     }
     await getAdapter().insertCanvasNode(node)
     set(s => ({ nodes: [...s.nodes, node] }))
@@ -114,21 +115,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const merged = { ...node.data, ...data }
     await getAdapter().updateCanvasNode(id, { data: merged })
     set(s => ({
-      nodes: s.nodes.map(n => n.id === id ? { ...n, data: merged, updatedAt: Date.now() } : n),
+      nodes: s.nodes.map(n => n.id === id ? { ...n, data: merged, updatedAt: nowUTC() } : n),
     }))
   },
 
   updateNodePosition: async (id, position) => {
     await getAdapter().updateCanvasNode(id, { position })
     set(s => ({
-      nodes: s.nodes.map(n => n.id === id ? { ...n, position, updatedAt: Date.now() } : n),
+      nodes: s.nodes.map(n => n.id === id ? { ...n, position, updatedAt: nowUTC() } : n),
     }))
   },
 
   updateNodeSize: async (id, width, height) => {
     await getAdapter().updateCanvasNode(id, { width, height })
     set(s => ({
-      nodes: s.nodes.map(n => n.id === id ? { ...n, width, height, updatedAt: Date.now() } : n),
+      nodes: s.nodes.map(n => n.id === id ? { ...n, width, height, updatedAt: nowUTC() } : n),
     }))
   },
 
@@ -198,7 +199,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     await getAdapter().updateCanvasNode(nodeId, { data: merged, position: relativePosition })
     set(s => ({
       nodes: s.nodes.map(n => n.id === nodeId
-        ? { ...n, data: merged, position: relativePosition, updatedAt: Date.now() }
+        ? { ...n, data: merged, position: relativePosition, updatedAt: nowUTC() }
         : n),
     }))
   },
@@ -218,7 +219,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     await getAdapter().updateCanvasNode(nodeId, { data: rest, position: absolutePosition })
     set(s => ({
       nodes: s.nodes.map(n => n.id === nodeId
-        ? { ...n, data: rest, position: absolutePosition, updatedAt: Date.now() }
+        ? { ...n, data: rest, position: absolutePosition, updatedAt: nowUTC() }
         : n),
     }))
   },

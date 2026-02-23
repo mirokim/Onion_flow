@@ -9,6 +9,7 @@ import { useProjectStore } from '@/stores/projectStore'
 import { loadProjectFromFolder } from '@/db/projectSerializer'
 import { toast } from './Toast'
 import { cn } from '@/lib/utils'
+import { formatDateUTC } from '@/lib/dateUtils'
 
 interface ProjectDialogProps {
   open: boolean
@@ -165,7 +166,7 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
                         )}
                       </div>
                       <span className="text-[10px] text-text-muted shrink-0">
-                        {new Date(p.updatedAt).toLocaleDateString('ko-KR')}
+                        {formatDateUTC(p.updatedAt)}
                       </span>
                     </button>
                   ))}

@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { Clock, RotateCcw, Trash2, ChevronDown, ChevronUp, FileText, Users, Map, BookOpen } from 'lucide-react'
 import type { TimelineSnapshot } from '@/types'
+import { formatDateUTC, formatRelativeTime } from '@/lib/dateUtils'
 
 interface SnapshotCardProps {
   snapshot: TimelineSnapshot
@@ -11,28 +12,6 @@ interface SnapshotCardProps {
   onRestore: (id: string) => void
   onDelete: (id: string) => void
   onViewDiff: (snapshot: TimelineSnapshot) => void
-}
-
-function formatDate(ts: number): string {
-  const d = new Date(ts)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}.${m}.${day} ${h}:${min}`
-}
-
-function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return '방금 전'
-  if (mins < 60) return `${mins}분 전`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}시간 전`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}일 전`
-  return formatDate(ts)
 }
 
 function getSnapshotStats(snapshot: TimelineSnapshot) {
@@ -80,7 +59,7 @@ export function SnapshotCard({ snapshot, isFirst, onRestore, onDelete, onViewDif
           <div className="font-medium text-sm truncate">{snapshot.label}</div>
           <div className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)] mt-0.5">
             <Clock className="w-3 h-3" />
-            <span title={formatDate(snapshot.createdAt)}>
+            <span title={formatDateUTC(snapshot.createdAt)}>
               {formatRelativeTime(snapshot.createdAt)}
             </span>
           </div>

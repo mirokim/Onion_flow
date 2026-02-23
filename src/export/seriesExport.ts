@@ -6,6 +6,7 @@
  */
 import type { Chapter } from '@/types'
 import { formatChapterText, splitByCharLimit, downloadTextFile } from './exportUtils'
+import { nowUTC } from '@/lib/dateUtils'
 
 /**
  * Format text for mobile-optimized platforms (Series, Kakaopage).
@@ -53,5 +54,5 @@ export function exportForSeries(chapters: Chapter[], maxChars: number = 6000): v
   }
 
   const output = parts.join('\n\n\n' + '━'.repeat(30) + '\n\n\n')
-  downloadTextFile(output, `manuscript_series_${Date.now()}.txt`)
+  downloadTextFile(output, `manuscript_series_${nowUTC()}.txt`)
 }

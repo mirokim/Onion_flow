@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { getAdapter } from '@/db/storageAdapter'
 import type { WikiEntry, WikiCategory, EntityType } from '@/types'
 import { generateId } from '@/lib/utils'
+import { nowUTC } from '@/lib/dateUtils'
+import { createEntity, withUpdatedAt, mapUpdate } from '@/lib/storeHelpers'
 
 interface WikiState {
   entries: WikiEntry[]
@@ -56,8 +58,8 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       content: '',
       tags: [],
       order: maxOrder,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: nowUTC(),
+      updatedAt: nowUTC(),
     }
     await getAdapter().insertWikiEntry(entry)
     set(s => ({ entries: [...s.entries, entry] }))
@@ -65,10 +67,9 @@ export const useWikiStore = create<WikiState>((set, get) => ({
   },
 
   updateEntry: async (id, updates) => {
-    await getAdapter().updateWikiEntry(id, updates)
-    set(s => ({
-      entries: s.entries.map(e => e.id === id ? { ...e, ...updates, updatedAt: Date.now() } : e),
-    }))
+    const merged = withUpdatedAt(updates)
+    await getAdapter().updateWikiEntry(id, merged)
+    set(s => ({ entries: mapUpdate(s.entries, id, merged) }))
   },
 
   deleteEntry: async (id) => {
@@ -94,8 +95,8 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       linkedEntityId: entityId,
       linkedEntityType: entityType,
       order: maxOrder,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: nowUTC(),
+      updatedAt: nowUTC(),
     }
     await getAdapter().insertWikiEntry(entry)
     set(s => ({ entries: [...s.entries, entry] }))

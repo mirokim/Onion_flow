@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { nowUTC } from '@/lib/dateUtils'
 
 export type EditableEntityType = 'emotion' | 'character' | 'relation' | 'world_setting' | 'item' | 'foreshadow'
 
@@ -78,14 +79,14 @@ export const useUserEditLogStore = create<UserEditLogState>()(
             updated[existingIdx] = {
               ...updated[existingIdx],
               newValue: entry.newValue,
-              timestamp: Date.now(),
+              timestamp: nowUTC(),
             }
             return { logs: updated }
           }
           const log: UserEditLogEntry = {
             ...entry,
-            id: `uel_${Date.now()}_${++idCounter}`,
-            timestamp: Date.now(),
+            id: `uel_${nowUTC()}_${++idCounter}`,
+            timestamp: nowUTC(),
           }
           return { logs: [...s.logs, log] }
         })

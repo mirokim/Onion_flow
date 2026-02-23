@@ -33,6 +33,7 @@ import type {
 } from '@/types'
 import type { StorageAdapter } from './storageAdapter'
 import { sanitizeRecord } from './backup'
+import { nowUTC } from '@/lib/dateUtils'
 
 // ── IndexedDB helpers for SQLite database persistence ──
 
@@ -627,7 +628,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
         }
         this._run(
           'INSERT INTO _migrations (name, applied_at) VALUES (?, ?)',
-          [migration.name, Date.now()]
+          [migration.name, nowUTC()]
         )
       } catch (err) {
         console.error(`[SQLite] Migration '${migration.name}' failed:`, err)
@@ -840,6 +841,11 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   // ── Row mapping: DB row → TypeScript object ──
 
+  /** Extract common timestamp fields from a DB row. */
+  private _ts(r: any): { createdAt: number; updatedAt: number } {
+    return { createdAt: r.created_at, updatedAt: r.updated_at }
+  }
+
   private _rowToProject(r: any): Project {
     return {
       id: r.id,
@@ -848,8 +854,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       genre: r.genre,
       synopsis: r.synopsis,
       settings: JSON.parse(r.settings || '{}'),
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }
   }
 
@@ -864,8 +869,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       content: r.content ? JSON.parse(r.content) : null,
       synopsis: r.synopsis,
       wordCount: r.word_count,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }
   }
 
@@ -898,8 +902,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       imageUrl: r.image_url,
       tags: this._parseJsonArray<string>(r.tags),
       notes: r.notes,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }
   }
 
@@ -924,8 +927,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       content: r.content,
       tags: this._parseJsonArray<string>(r.tags),
       order: r.order,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }
   }
 
@@ -942,8 +944,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       tags: this._parseJsonArray<string>(r.tags),
       notes: r.notes,
       order: r.order,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }
   }
 
@@ -960,8 +961,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       useAsContext: !!r.use_as_context,
       notes: r.notes,
       order: r.order,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }
   }
 
@@ -977,8 +977,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       importance: r.importance,
       tags: this._parseJsonArray<string>(r.tags),
       notes: r.notes,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }
   }
 
@@ -1030,8 +1029,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       title: r.title,
       content: r.content,
       order: r.order,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }
   }
 
@@ -1470,7 +1468,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     const rows = this._queryAll('SELECT * FROM onion_nodes WHERE id = ?', [id])
     if (rows.length === 0) return
     const existing = this._rowToOnionNode(rows[0])
-    const merged = { ...existing, ...updates, updatedAt: Date.now() }
+    const merged = { ...existing, ...updates, updatedAt: nowUTC() }
     await this.insertOnionNode(merged)
   }
 
@@ -1579,8 +1577,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       data: JSON.parse(r.data || '{}'),
       width: r.width || undefined,
       height: r.height || undefined,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      ...this._ts(r),
     }))
   }
 
@@ -1608,7 +1605,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       width: existing.width || undefined,
       height: existing.height || undefined,
       createdAt: existing.created_at,
-      updatedAt: Date.now(),
+      updatedAt: nowUTC(),
       ...updates,
     }
     await this.insertCanvasNode(merged)
@@ -1684,8 +1681,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
         linkedEntityId: r.linked_entity_id || undefined,
         linkedEntityType: r.linked_entity_type || undefined,
         order: r.order,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
+        ...this._ts(r),
       }))
   }
 
@@ -1709,9 +1705,9 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       tags: this._parseJsonArray<string>(r.tags),
       linkedEntityId: r.linked_entity_id || undefined,
       linkedEntityType: r.linked_entity_type || undefined,
-      order: r.order, createdAt: r.created_at, updatedAt: r.updated_at,
+      order: r.order, ...this._ts(r),
     }
-    await this.insertWikiEntry({ ...existing, ...updates, updatedAt: Date.now() })
+    await this.insertWikiEntry({ ...existing, ...updates, updatedAt: nowUTC() })
   }
 
   async deleteWikiEntry(id: string): Promise<void> {
