@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Plus, BookOpen, Search, X } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useWikiStore } from '@/stores/wikiStore'
 import { useProjectStore } from '@/stores/projectStore'
@@ -10,6 +10,7 @@ import { WikiSearch } from './WikiSearch'
 import { WikiCategoryList, WIKI_CATEGORY_GROUPS, WIKI_CATEGORIES } from './WikiCategoryList'
 import { WikiEntryEditor } from './WikiEntryEditor'
 import { cn } from '@/lib/utils'
+import { createPortal } from 'react-dom'
 
 interface WikiPanelProps {
   panelDragHandlers?: PanelDragHandlers
@@ -30,6 +31,7 @@ export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
   const pinnedPanels = useEditorStore(s => s.pinnedPanels)
   const togglePanelPin = useEditorStore(s => s.togglePanelPin)
   const [showCategoryPicker, setShowCategoryPicker] = useState(false)
+  const addBtnRef = useRef<HTMLButtonElement>(null)
 
   const filteredEntries = useMemo(() => getFilteredEntries(), [entries, filterCategory, useWikiStore.getState().searchQuery])
 
@@ -73,8 +75,9 @@ export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
         onTogglePin={() => togglePanelPin('wiki')}
         panelDragHandlers={panelDragHandlers}
         actions={
-          <div className="relative">
+          <>
             <button
+              ref={addBtnRef}
               onClick={() => setShowCategoryPicker(!showCategoryPicker)}
               className="p-1 rounded hover:bg-bg-hover text-text-secondary"
               title={t('common.add')}
@@ -83,11 +86,12 @@ export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
             </button>
             {showCategoryPicker && (
               <CategoryPicker
+                anchorRef={addBtnRef}
                 onSelect={handleAddEntry}
                 onClose={() => setShowCategoryPicker(false)}
               />
             )}
-          </div>
+          </>
         }
       />
 
@@ -145,12 +149,11 @@ export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
   )
 }
 
-function CategoryPicker({ onSelect, onClose }: {
+function CategoryPicker({ anchorRef, onSelect, onClose }: {
+  anchorRef: React.RefObject<HTMLButtonElement | null>
   onSelect: (category: WikiCategory) => void
   onClose: () => void
 }) {
-  const [search, setSearch] = useState('')
-
   // Load recent categories from localStorage
   const [recentCategories] = useState<WikiCategory[]>(() => {
     try {
@@ -158,12 +161,6 @@ function CategoryPicker({ onSelect, onClose }: {
       return stored ? JSON.parse(stored) : []
     } catch { return [] }
   })
-
-  const matchesSearch = (cat: { label: string; labelKo: string }) => {
-    if (!search.trim()) return true
-    const q = search.toLowerCase()
-    return cat.labelKo.toLowerCase().includes(q) || cat.label.toLowerCase().includes(q)
-  }
 
   const handleSelect = (category: WikiCategory) => {
     // Update recent categories in localStorage
@@ -175,42 +172,19 @@ function CategoryPicker({ onSelect, onClose }: {
     onSelect(category)
   }
 
-  const hasAnyResult = WIKI_CATEGORY_GROUPS.some(g =>
-    g.categories.some(c => matchesSearch(c)),
-  )
+  const rect = anchorRef.current?.getBoundingClientRect()
+  const top = rect ? rect.bottom + 4 : 0
+  const right = rect ? window.innerWidth - rect.right : 0
 
-  return (
+  return createPortal(
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-bg-surface border border-border rounded-lg shadow-xl overflow-hidden">
-        {/* Search input */}
-        <div className="px-2 pt-2 pb-1">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-text-muted" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="카테고리 검색..."
-              className="w-full pl-6 pr-6 py-1 text-xs bg-bg-hover border border-border rounded focus:outline-none focus:border-accent text-text-primary placeholder:text-text-muted"
-              autoFocus
-            />
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="max-h-72 overflow-y-auto">
+      <div className="fixed z-50 w-48 bg-bg-surface border border-border rounded-lg shadow-xl overflow-hidden" style={{ top, right }}>
+        <div className="max-h-72 overflow-y-auto py-1">
           {/* Recent categories */}
-          {!search.trim() && recentCategories.length > 0 && (
+          {recentCategories.length > 0 && (
             <>
-              <div className="px-3 pt-2 pb-1 text-[10px] font-medium text-text-muted uppercase tracking-wide">
+              <div className="px-3 pt-1.5 pb-1 text-[10px] font-medium text-text-muted uppercase tracking-wide">
                 최근 사용
               </div>
               {recentCategories.map(catKey => {
@@ -232,38 +206,27 @@ function CategoryPicker({ onSelect, onClose }: {
           )}
 
           {/* Grouped categories */}
-          {WIKI_CATEGORY_GROUPS.map(group => {
-            const visibleCats = group.categories.filter(matchesSearch)
-            if (visibleCats.length === 0) return null
-
-            return (
-              <div key={group.id}>
-                <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-[10px] font-medium text-text-muted uppercase tracking-wide">
-                  {group.icon}
-                  <span>{group.labelKo}</span>
-                </div>
-                {visibleCats.map(cat => (
-                  <button
-                    key={cat.key}
-                    onClick={() => handleSelect(cat.key)}
-                    className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition"
-                  >
-                    {cat.icon}
-                    <span>{cat.labelKo}</span>
-                  </button>
-                ))}
+          {WIKI_CATEGORY_GROUPS.map(group => (
+            <div key={group.id}>
+              <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-[10px] font-medium text-text-muted uppercase tracking-wide">
+                {group.icon}
+                <span>{group.labelKo}</span>
               </div>
-            )
-          })}
-
-          {/* No results */}
-          {!hasAnyResult && (
-            <div className="px-3 py-4 text-center text-xs text-text-muted">
-              검색 결과 없음
+              {group.categories.map(cat => (
+                <button
+                  key={cat.key}
+                  onClick={() => handleSelect(cat.key)}
+                  className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition"
+                >
+                  {cat.icon}
+                  <span>{cat.labelKo}</span>
+                </button>
+              ))}
             </div>
-          )}
+          ))}
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   )
 }

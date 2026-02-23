@@ -146,7 +146,7 @@
 .tiptap {
   outline: none;
   min-height: 100%;
-  padding: 2rem 0;
+  /* padding controlled by Tailwind classes in BlockEditor editorProps */
   font-family: 'Georgia', 'Noto Serif KR', 'Noto Serif', serif;
   color: var(--color-text-primary);
 }

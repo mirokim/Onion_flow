@@ -39,7 +39,7 @@ export function BlockEditor() {
     ],
     editorProps: {
       attributes: {
-        class: 'prose prose-sm max-w-none focus:outline-none min-h-full px-16 py-10 text-text-primary',
+        class: 'prose prose-sm max-w-none focus:outline-none min-h-full px-5 pt-1 pb-10 text-text-primary',
       },
     },
     onUpdate: ({ editor }) => {
