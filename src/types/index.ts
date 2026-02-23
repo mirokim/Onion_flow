@@ -83,6 +83,7 @@ export interface DailyStats {
 export type CanvasNodeType =
   | 'character' | 'event' | 'wiki'
   | 'personality' | 'appearance' | 'memory'
+  | 'image_load' | 'document_load' | 'plot_context'
   | 'pov' | 'pacing' | 'style_transfer'
   | 'storyteller' | 'summarizer'
   | 'save_story'

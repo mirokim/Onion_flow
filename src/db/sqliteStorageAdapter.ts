@@ -94,28 +94,22 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   // ── Init ──
 
-  /** Initialize: load from file (Electron) or IndexedDB (web fallback) */
+  /** Initialize: always start fresh — folder-based projects are reloaded on demand */
   async init(): Promise<void> {
     if (this.initialized) return
     this.initialized = true
 
     const SQL = await loadSqlJs()
 
-    // Try to load from IndexedDB as web fallback
-    const savedData = await loadDatabaseFromIDB()
-    if (savedData) {
-      try {
-        this.db = new SQL.Database(savedData)
-        console.log('[SQLite] Loaded existing database from IndexedDB')
-      } catch (err) {
-        console.warn('[SQLite] Failed to load saved database, creating new one:', err)
-        this.db = new SQL.Database()
-      }
-    } else {
-      this.db = new SQL.Database()
-      console.log('[SQLite] Created new database')
+    // Clear stale IndexedDB data — folder-based projects will be reloaded via "폴더 열기"
+    await deleteFromIDB('onion-main-db')
+    const backupKeys = await getAutoBackupKeys()
+    for (const key of backupKeys) {
+      await deleteFromIDB(key)
     }
+    console.log('[SQLite] Cleared IndexedDB — starting fresh')
 
+    this.db = new SQL.Database()
     createTables(this.db)
     await this._persist()
 
