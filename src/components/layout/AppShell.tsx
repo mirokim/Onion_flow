@@ -180,9 +180,10 @@ export function AppShell() {
             style = { flex: 1 }
           } else if (isFirst) {
             style = { width: canvasWidth }
-          } else if (isLast) {
+          } else if (isLast && total >= 3) {
             style = { width: wikiWidth }
           } else {
+            // Middle panels OR last panel when only 2 panels: fill remaining space
             style = { flex: 1, minWidth: 200 }
           }
 
