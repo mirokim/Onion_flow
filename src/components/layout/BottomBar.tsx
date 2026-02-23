@@ -2,7 +2,38 @@ import { useTranslation } from 'react-i18next'
 import { useEditorStore } from '@/stores/editorStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useCanvasStore } from '@/stores/canvasStore'
+import { useSaveStatusStore } from '@/stores/saveStatusStore'
 import { formatNumber } from '@/lib/utils'
+
+function SaveStatusIndicator() {
+  const status = useSaveStatusStore(s => s.status)
+
+  if (status === 'idle') return null
+
+  return (
+    <>
+      <span className="text-text-muted/50">|</span>
+      {status === 'modified' && (
+        <span className="text-yellow-500/80 flex items-center gap-1">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-500/80" />
+          수정됨
+        </span>
+      )}
+      {status === 'saving' && (
+        <span className="text-blue-400/80 flex items-center gap-1">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+          저장 중...
+        </span>
+      )}
+      {status === 'saved' && (
+        <span className="text-green-500/80 flex items-center gap-1">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500/80" />
+          저장됨
+        </span>
+      )}
+    </>
+  )
+}
 
 export function BottomBar() {
   const { t } = useTranslation()
@@ -22,6 +53,7 @@ export function BottomBar() {
         {currentDepthPath.length > 0 && (
           <span className="text-accent">{t('canvas.depth')}: {currentDepthPath.length}</span>
         )}
+        <SaveStatusIndicator />
       </div>
 
       <div className="flex items-center gap-3">

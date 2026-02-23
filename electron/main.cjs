@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, dialog, session } = require('electron')
+const { app, BrowserWindow, shell, ipcMain, dialog, session, safeStorage } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
@@ -200,6 +200,28 @@ ipcMain.handle('file:readProjectFile', async (_event, folderPath, filename) => {
     return { success: true, data: content }
   } catch (err) {
     return { success: false, error: err.message }
+  }
+})
+
+// ── IPC: safeStorage — OS-level encryption for API keys ──
+
+ipcMain.handle('safe:isAvailable', () => {
+  return safeStorage.isEncryptionAvailable()
+})
+
+ipcMain.handle('safe:encrypt', (_event, plainText) => {
+  if (!safeStorage.isEncryptionAvailable()) return null
+  const encrypted = safeStorage.encryptString(plainText)
+  return encrypted.toString('base64')
+})
+
+ipcMain.handle('safe:decrypt', (_event, base64) => {
+  if (!safeStorage.isEncryptionAvailable()) return null
+  try {
+    const buffer = Buffer.from(base64, 'base64')
+    return safeStorage.decryptString(buffer)
+  } catch {
+    return null
   }
 })
 

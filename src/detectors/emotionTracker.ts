@@ -30,16 +30,24 @@ export function detectEmotionsFromText(
   const charMentions = text.split(characterName).length - 1
   if (charMentions === 0) return scores
 
-  // Simple keyword matching
+  // Simple keyword matching (Korean + English)
   const emotionKeywords: Record<string, string[]> = {
-    joy: ['기쁘', '행복', '웃', '미소', '즐거', '환호', '기뻐', '좋아'],
-    sadness: ['슬프', '눈물', '울', '비통', '우울', '서글', '슬퍼', '아프'],
-    anger: ['분노', '화가', '격분', '이를 갈', '주먹을 쥐', '화난', '분했', '노여'],
-    fear: ['두려', '공포', '떨리', '무서', '겁', '벌벌', '두렵'],
-    surprise: ['놀라', '깜짝', '경악', '충격', '놀란', '어이없'],
-    love: ['사랑', '애정', '그리워', '따뜻', '포옹', '가슴이 뛰'],
-    tension: ['긴장', '조마조마', '불안', '위험', '급박', '심장이 빨라'],
-    determination: ['결심', '각오', '결의', '단호', '다짐', '반드시', '꼭'],
+    joy: ['기쁘', '행복', '웃', '미소', '즐거', '환호', '기뻐', '좋아',
+      'happy', 'joy', 'smile', 'laugh', 'cheer', 'delight', 'glad', 'grin'],
+    sadness: ['슬프', '눈물', '울', '비통', '우울', '서글', '슬퍼', '아프',
+      'sad', 'tear', 'cry', 'grief', 'sorrow', 'weep', 'mourn', 'depressed'],
+    anger: ['분노', '화가', '격분', '이를 갈', '주먹을 쥐', '화난', '분했', '노여',
+      'anger', 'fury', 'rage', 'furious', 'clench', 'scowl', 'livid', 'wrath'],
+    fear: ['두려', '공포', '떨리', '무서', '겁', '벌벌', '두렵',
+      'fear', 'terror', 'tremble', 'dread', 'scared', 'horror', 'panic'],
+    surprise: ['놀라', '깜짝', '경악', '충격', '놀란', '어이없',
+      'surprise', 'shock', 'astonish', 'stunned', 'gasp', 'startle'],
+    love: ['사랑', '애정', '그리워', '따뜻', '포옹', '가슴이 뛰',
+      'love', 'affection', 'embrace', 'warmth', 'longing', 'heart race'],
+    tension: ['긴장', '조마조마', '불안', '위험', '급박', '심장이 빨라',
+      'tense', 'anxious', 'nervous', 'danger', 'uneasy', 'dread'],
+    determination: ['결심', '각오', '결의', '단호', '다짐', '반드시', '꼭',
+      'determined', 'resolve', 'vow', 'unwavering', 'committed', 'sworn'],
   }
 
   for (const [emotion, keywords] of Object.entries(emotionKeywords)) {

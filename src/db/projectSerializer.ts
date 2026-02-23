@@ -1,16 +1,53 @@
 /**
  * Project Serializer — saves/loads projects to/from local folders.
  *
- * Folder structure:
- *   ProjectName/
- *   ├── project.json      ← Project metadata
- *   ├── canvas.json       ← { nodes: CanvasNode[], wires: CanvasWire[] }
- *   ├── manuscript.md     ← Chapters as Markdown
- *   └── wiki.md           ← Wiki entries as Markdown
+ * Folder structure (3 files):
+ *   ProjectFolder/
+ *   ├── storyflow.json   ← Authoritative: project meta + canvas + world + chapters + wiki
+ *   ├── manuscript.md    ← Human-readable: chapters as Markdown
+ *   └── wiki.md          ← Human-readable: wiki entries as Markdown
+ *
+ * storyflow.json is the single source of truth for loading.
+ * manuscript.md and wiki.md are derived outputs for human readability.
  */
-import type { Project, Chapter, CanvasNode, CanvasWire, WikiEntry } from '@/types'
+import type {
+  Project, Chapter, CanvasNode, CanvasWire, WikiEntry,
+  Character, CharacterRelation, WorldSetting, Item, Foreshadow, ReferenceData,
+  ProjectSettings,
+} from '@/types'
 import type { JSONContent } from '@tiptap/react'
+import type { FileWriterHandle } from './fileWriter'
 import { nowUTC } from '@/lib/dateUtils'
+
+// ── StoryFlow JSON Schema ──
+
+export interface StoryFlowFile {
+  version: 1
+  project: {
+    id: string
+    title: string
+    description: string
+    genre: string
+    synopsis: string
+    settings: ProjectSettings
+    createdAt: number
+    updatedAt: number
+  }
+  canvas: {
+    nodes: CanvasNode[]
+    wires: CanvasWire[]
+  }
+  world: {
+    characters: Character[]
+    relations: CharacterRelation[]
+    worldSettings: WorldSetting[]
+    items: Item[]
+    foreshadows: Foreshadow[]
+    referenceData: ReferenceData[]
+  }
+  chapters: Chapter[]
+  wikiEntries: WikiEntry[]
+}
 
 // ── TipTap JSONContent → Markdown conversion (simplified) ──
 
@@ -164,44 +201,69 @@ function wikiEntriesToMarkdown(entries: WikiEntry[]): string {
   return lines.join('\n').trim()
 }
 
-// ── Save to folder ──
+// ── Save to folder (3 files) ──
+
+export interface SaveToFolderParams {
+  project: Project
+  chapters: Chapter[]
+  canvasNodes: CanvasNode[]
+  canvasWires: CanvasWire[]
+  wikiEntries: WikiEntry[]
+  characters: Character[]
+  relations: CharacterRelation[]
+  worldSettings: WorldSetting[]
+  items: Item[]
+  foreshadows: Foreshadow[]
+  referenceData: ReferenceData[]
+}
 
 export async function saveProjectToFolder(
-  folderPath: string,
-  project: Project,
-  chapters: Chapter[],
-  canvasNodes: CanvasNode[],
-  canvasWires: CanvasWire[],
-  wikiEntries: WikiEntry[],
+  writer: FileWriterHandle,
+  params: SaveToFolderParams,
 ): Promise<{ success: boolean; error?: string }> {
-  const api = window.electronAPI
-  if (!api) return { success: false, error: 'Electron API not available' }
-
   try {
-    // 1. project.json
-    const projectMeta = {
-      id: project.id,
-      title: project.title,
-      description: project.description,
-      genre: project.genre,
-      synopsis: project.synopsis,
-      settings: project.settings,
-      createdAt: project.createdAt,
-      updatedAt: nowUTC(),
+    const {
+      project, chapters, canvasNodes, canvasWires, wikiEntries,
+      characters, relations, worldSettings, items, foreshadows, referenceData,
+    } = params
+
+    // 1. storyflow.json — authoritative structured data
+    const storyflow: StoryFlowFile = {
+      version: 1,
+      project: {
+        id: project.id,
+        title: project.title,
+        description: project.description,
+        genre: project.genre,
+        synopsis: project.synopsis,
+        settings: project.settings,
+        createdAt: project.createdAt,
+        updatedAt: nowUTC(),
+      },
+      canvas: {
+        nodes: canvasNodes,
+        wires: canvasWires,
+      },
+      world: {
+        characters,
+        relations,
+        worldSettings,
+        items,
+        foreshadows,
+        referenceData,
+      },
+      chapters,
+      wikiEntries,
     }
-    await api.writeProjectFile(folderPath, 'project.json', JSON.stringify(projectMeta, null, 2))
+    await writer.writeFile('storyflow.json', JSON.stringify(storyflow, null, 2))
 
-    // 2. canvas.json
-    const canvasData = { nodes: canvasNodes, wires: canvasWires }
-    await api.writeProjectFile(folderPath, 'canvas.json', JSON.stringify(canvasData, null, 2))
-
-    // 3. manuscript.md
+    // 2. manuscript.md — human-readable Markdown
     const manuscriptMd = chaptersToMarkdown(chapters)
-    await api.writeProjectFile(folderPath, 'manuscript.md', manuscriptMd)
+    await writer.writeFile('manuscript.md', manuscriptMd)
 
-    // 4. wiki.md
+    // 3. wiki.md — human-readable Markdown
     const wikiMd = wikiEntriesToMarkdown(wikiEntries)
-    await api.writeProjectFile(folderPath, 'wiki.md', wikiMd)
+    await writer.writeFile('wiki.md', wikiMd)
 
     return { success: true }
   } catch (err: any) {
@@ -211,41 +273,68 @@ export async function saveProjectToFolder(
 
 // ── Load from folder ──
 
-export async function loadProjectFromFolder(
-  folderPath: string,
-): Promise<{
+export interface LoadFromFolderResult {
   success: boolean
   error?: string
-  project?: Partial<Project>
-  canvasNodes?: CanvasNode[]
-  canvasWires?: CanvasWire[]
-}> {
-  const api = window.electronAPI
-  if (!api) return { success: false, error: 'Electron API not available' }
+  data?: StoryFlowFile
+}
 
+export async function loadProjectFromFolder(
+  writer: FileWriterHandle,
+): Promise<LoadFromFolderResult> {
   try {
-    // 1. Read project.json
-    const projResult = await api.readProjectFile(folderPath, 'project.json')
-    if (!projResult.success || !projResult.data) {
-      return { success: false, error: 'project.json not found or unreadable' }
-    }
-    const project = JSON.parse(projResult.data) as Partial<Project>
+    // Try storyflow.json first (new format)
+    const storyflowRaw = await writer.readFile('storyflow.json')
 
-    // 2. Read canvas.json
+    if (storyflowRaw) {
+      const data = JSON.parse(storyflowRaw) as StoryFlowFile
+      return { success: true, data }
+    }
+
+    // Legacy fallback: try project.json + canvas.json (old 4-file format)
+    const projectRaw = await writer.readFile('project.json')
+    if (!projectRaw) {
+      return { success: false, error: 'storyflow.json not found' }
+    }
+
+    const projectMeta = JSON.parse(projectRaw) as Partial<Project>
     let canvasNodes: CanvasNode[] = []
     let canvasWires: CanvasWire[] = []
-    const canvasResult = await api.readProjectFile(folderPath, 'canvas.json')
-    if (canvasResult.success && canvasResult.data) {
-      const data = JSON.parse(canvasResult.data)
-      canvasNodes = data.nodes || []
-      canvasWires = data.wires || []
+
+    const canvasRaw = await writer.readFile('canvas.json')
+    if (canvasRaw) {
+      const canvasData = JSON.parse(canvasRaw)
+      canvasNodes = canvasData.nodes || []
+      canvasWires = canvasData.wires || []
     }
 
-    // manuscript.md and wiki.md are human-readable exports;
-    // the authoritative data remains in the SQLite DB.
-    // They can be parsed for import in a future version.
+    // Build a StoryFlowFile from legacy data
+    const legacyData: StoryFlowFile = {
+      version: 1,
+      project: {
+        id: projectMeta.id || '',
+        title: projectMeta.title || 'Imported Project',
+        description: projectMeta.description || '',
+        genre: projectMeta.genre || '',
+        synopsis: projectMeta.synopsis || '',
+        settings: projectMeta.settings || { language: 'ko', targetDailyWords: 3000, readingSpeedCPM: 500 },
+        createdAt: projectMeta.createdAt || Date.now(),
+        updatedAt: projectMeta.updatedAt || Date.now(),
+      },
+      canvas: { nodes: canvasNodes, wires: canvasWires },
+      world: {
+        characters: [],
+        relations: [],
+        worldSettings: [],
+        items: [],
+        foreshadows: [],
+        referenceData: [],
+      },
+      chapters: [],
+      wikiEntries: [],
+    }
 
-    return { success: true, project, canvasNodes, canvasWires }
+    return { success: true, data: legacyData }
   } catch (err: any) {
     return { success: false, error: err.message || 'Unknown error' }
   }

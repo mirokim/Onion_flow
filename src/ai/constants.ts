@@ -38,6 +38,14 @@ export function resolveCategory(category: string): WorldSettingCategoryValue {
   return CATEGORY_ALIAS_MAP[category.toLowerCase().trim()] || 'other'
 }
 
+// ── Wiki Categories ──
+export const WIKI_CATEGORIES = [
+  ...WORLD_SETTING_CATEGORIES,
+  'character', 'character_personality', 'character_appearance', 'character_memory',
+  'event', 'story',
+  'item', 'custom',
+] as const
+
 // ── Foreshadow Constants ──
 export const FORESHADOW_STATUSES = ['planted', 'hinted', 'resolved', 'abandoned'] as const
 export const FORESHADOW_IMPORTANCES = ['low', 'medium', 'high', 'critical'] as const
@@ -84,6 +92,7 @@ export interface AIAccessScope {
   referenceData: AIAccessLevel
   relations: AIAccessLevel
   emotions: AIAccessLevel
+  wiki: AIAccessLevel
 }
 
 export const DEFAULT_AI_ACCESS_SCOPE: AIAccessScope = {
@@ -95,6 +104,7 @@ export const DEFAULT_AI_ACCESS_SCOPE: AIAccessScope = {
   referenceData: 'read_only',
   relations: 'full',
   emotions: 'full',
+  wiki: 'full',
 }
 
 export const TOOL_ACCESS_REQUIREMENTS: Record<string, { scope: keyof AIAccessScope; level: AIAccessLevel }> = {
@@ -115,6 +125,9 @@ export const TOOL_ACCESS_REQUIREMENTS: Record<string, { scope: keyof AIAccessSco
   rename_chapter: { scope: 'chapters', level: 'full' },
   save_outline: { scope: 'chapters', level: 'full' },
   analyze_character_emotions: { scope: 'emotions', level: 'full' },
+  create_wiki_entry: { scope: 'wiki', level: 'full' },
+  update_wiki_entry: { scope: 'wiki', level: 'full' },
+  delete_wiki_entry: { scope: 'wiki', level: 'full' },
 }
 
 export const DATA_TYPE_SCOPE_MAP: Record<string, keyof AIAccessScope> = {
@@ -125,6 +138,7 @@ export const DATA_TYPE_SCOPE_MAP: Record<string, keyof AIAccessScope> = {
   foreshadows: 'foreshadows',
   relations: 'relations',
   chapter_content: 'chapters',
+  wiki_entries: 'wiki',
 }
 
 export function checkAIAccess(

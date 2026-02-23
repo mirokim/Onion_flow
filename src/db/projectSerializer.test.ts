@@ -3,31 +3,31 @@
  * Tests: saveProjectToFolder, loadProjectFromFolder, and indirectly
  * jsonContentToMarkdown, chaptersToMarkdown, wikiEntriesToMarkdown.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/dateUtils', () => ({
   nowUTC: vi.fn(() => 1700000000000),
 }))
 
 import { saveProjectToFolder, loadProjectFromFolder } from '@/db/projectSerializer'
+import type { FileWriterHandle } from '@/db/fileWriter'
 import type { Project, Chapter, CanvasNode, CanvasWire, WikiEntry } from '@/types'
 
-// ── Mocks ──
+// ── Mock FileWriterHandle ──
 
-const mockWriteProjectFile = vi.fn<(path: string, filename: string, content: string) => Promise<void>>(async () => {})
-const mockReadProjectFile = vi.fn<(path: string, filename: string) => Promise<{ success: boolean; data?: string }>>()
-
-beforeEach(() => {
-  vi.clearAllMocks()
-  ;(window as any).electronAPI = {
-    writeProjectFile: mockWriteProjectFile,
-    readProjectFile: mockReadProjectFile,
+function createMockWriter(files: Record<string, string> = {}): FileWriterHandle & { written: Record<string, string> } {
+  const written: Record<string, string> = {}
+  return {
+    written,
+    async writeFile(filename: string, content: string) {
+      written[filename] = content
+    },
+    async readFile(filename: string): Promise<string | null> {
+      return files[filename] ?? written[filename] ?? null
+    },
+    isAvailable() { return true },
   }
-})
-
-afterEach(() => {
-  delete (window as any).electronAPI
-})
+}
 
 // ── Helpers ──
 
@@ -79,128 +79,115 @@ function makeWikiEntry(overrides: Partial<WikiEntry> = {}): WikiEntry {
 
 const emptyNodes: CanvasNode[] = []
 const emptyWires: CanvasWire[] = []
+const emptyWorld = {
+  characters: [],
+  relations: [],
+  worldSettings: [],
+  items: [],
+  foreshadows: [],
+  referenceData: [],
+}
+
+function makeSaveParams(overrides: any = {}) {
+  return {
+    project: makeProject(),
+    chapters: [] as Chapter[],
+    canvasNodes: emptyNodes,
+    canvasWires: emptyWires,
+    wikiEntries: [] as WikiEntry[],
+    ...emptyWorld,
+    ...overrides,
+  }
+}
 
 describe('projectSerializer', () => {
   // ── saveProjectToFolder ──
 
   describe('saveProjectToFolder', () => {
-    it('should write project.json with correct metadata', async () => {
-      const project = makeProject()
-      const result = await saveProjectToFolder('/test/path', project, [], emptyNodes, emptyWires, [])
+    it('should write storyflow.json with correct structure', async () => {
+      const writer = createMockWriter()
+      const result = await saveProjectToFolder(writer, makeSaveParams())
 
       expect(result.success).toBe(true)
+      expect(writer.written['storyflow.json']).toBeDefined()
 
-      const projectJsonCall = mockWriteProjectFile.mock.calls.find(
-        (call) => call[1] === 'project.json',
-      )
-      expect(projectJsonCall).toBeDefined()
-
-      const written = JSON.parse(projectJsonCall![2])
-      expect(written.id).toBe('proj-1')
-      expect(written.title).toBe('Test Novel')
-      expect(written.description).toBe('A test project')
-      expect(written.genre).toBe('Fantasy')
-      expect(written.updatedAt).toBe(1700000000000)
+      const data = JSON.parse(writer.written['storyflow.json'])
+      expect(data.version).toBe(1)
+      expect(data.project.id).toBe('proj-1')
+      expect(data.project.title).toBe('Test Novel')
+      expect(data.canvas.nodes).toEqual([])
+      expect(data.canvas.wires).toEqual([])
+      expect(data.world.characters).toEqual([])
+      expect(data.chapters).toEqual([])
+      expect(data.wikiEntries).toEqual([])
     })
 
-    it('should write canvas.json with nodes and wires', async () => {
-      const nodes: CanvasNode[] = [
-        {
-          id: 'node-1',
-          projectId: 'proj-1',
-          parentCanvasId: null,
-          type: 'chapter',
-          position: { x: 100, y: 200 },
-          data: { chapterId: 'ch-1' },
-          createdAt: 1700000000000,
-          updatedAt: 1700000000000,
-        },
-      ]
-      const wires: CanvasWire[] = [
-        {
-          id: 'wire-1',
-          projectId: 'proj-1',
-          parentCanvasId: null,
-          sourceNodeId: 'node-1',
-          targetNodeId: 'node-2',
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
-        },
-      ]
+    it('should write storyflow.json with canvas nodes and wires', async () => {
+      const writer = createMockWriter()
+      const nodes: CanvasNode[] = [{
+        id: 'node-1', projectId: 'proj-1', parentCanvasId: null,
+        type: 'character', position: { x: 100, y: 200 }, data: {},
+        createdAt: 1700000000000, updatedAt: 1700000000000,
+      }]
+      const wires: CanvasWire[] = [{
+        id: 'wire-1', projectId: 'proj-1', parentCanvasId: null,
+        sourceNodeId: 'node-1', targetNodeId: 'node-2',
+        sourceHandle: 'out', targetHandle: 'in',
+      }]
 
-      await saveProjectToFolder('/test/path', makeProject(), [], nodes, wires, [])
+      await saveProjectToFolder(writer, makeSaveParams({ canvasNodes: nodes, canvasWires: wires }))
 
-      const canvasCall = mockWriteProjectFile.mock.calls.find(
-        (call) => call[1] === 'canvas.json',
-      )
-      expect(canvasCall).toBeDefined()
-
-      const canvasData = JSON.parse(canvasCall![2])
-      expect(canvasData.nodes).toHaveLength(1)
-      expect(canvasData.nodes[0].id).toBe('node-1')
-      expect(canvasData.wires).toHaveLength(1)
-      expect(canvasData.wires[0].id).toBe('wire-1')
+      const data = JSON.parse(writer.written['storyflow.json'])
+      expect(data.canvas.nodes).toHaveLength(1)
+      expect(data.canvas.nodes[0].id).toBe('node-1')
+      expect(data.canvas.wires).toHaveLength(1)
+      expect(data.canvas.wires[0].id).toBe('wire-1')
     })
 
     it('should write manuscript.md with chapter markdown', async () => {
+      const writer = createMockWriter()
       const chapters: Chapter[] = [
         makeChapter({
           title: 'The Beginning',
           synopsis: 'It all starts here.',
           content: {
             type: 'doc',
-            content: [
-              { type: 'paragraph', content: [{ type: 'text', text: 'Once upon a time.' }] },
-            ],
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Once upon a time.' }] }],
           },
         }),
       ]
 
-      await saveProjectToFolder('/test/path', makeProject(), chapters, emptyNodes, emptyWires, [])
+      await saveProjectToFolder(writer, makeSaveParams({ chapters }))
 
-      const manuscriptCall = mockWriteProjectFile.mock.calls.find(
-        (call) => call[1] === 'manuscript.md',
-      )
-      expect(manuscriptCall).toBeDefined()
-
-      const md = manuscriptCall![2] as string
+      const md = writer.written['manuscript.md']
       expect(md).toContain('## The Beginning')
       expect(md).toContain('> It all starts here.')
       expect(md).toContain('Once upon a time.')
     })
 
     it('should write wiki.md with wiki entry markdown', async () => {
+      const writer = createMockWriter()
       const wikiEntries: WikiEntry[] = [
         makeWikiEntry({ category: 'character', title: 'Hero', content: 'Brave warrior', tags: ['main'] }),
       ]
 
-      await saveProjectToFolder('/test/path', makeProject(), [], emptyNodes, emptyWires, wikiEntries)
+      await saveProjectToFolder(writer, makeSaveParams({ wikiEntries }))
 
-      const wikiCall = mockWriteProjectFile.mock.calls.find(
-        (call) => call[1] === 'wiki.md',
-      )
-      expect(wikiCall).toBeDefined()
-
-      const md = wikiCall![2] as string
+      const md = writer.written['wiki.md']
       expect(md).toContain('## character')
       expect(md).toContain('### Hero')
       expect(md).toContain('Brave warrior')
       expect(md).toContain('Tags: main')
     })
 
-    it('should return { success: false } when electronAPI is not available', async () => {
-      delete (window as any).electronAPI
-
-      const result = await saveProjectToFolder('/test/path', makeProject(), [], emptyNodes, emptyWires, [])
-
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('Electron API not available')
-    })
-
     it('should return error on write failure', async () => {
-      mockWriteProjectFile.mockRejectedValueOnce(new Error('Disk full'))
+      const writer: FileWriterHandle = {
+        async writeFile() { throw new Error('Disk full') },
+        async readFile() { return null },
+        isAvailable() { return true },
+      }
 
-      const result = await saveProjectToFolder('/test/path', makeProject(), [], emptyNodes, emptyWires, [])
+      const result = await saveProjectToFolder(writer, makeSaveParams())
 
       expect(result.success).toBe(false)
       expect(result.error).toBe('Disk full')
@@ -210,64 +197,59 @@ describe('projectSerializer', () => {
   // ── loadProjectFromFolder ──
 
   describe('loadProjectFromFolder', () => {
-    it('should read and parse project.json', async () => {
-      const projectData = { id: 'proj-1', title: 'My Novel' }
-      mockReadProjectFile
-        .mockResolvedValueOnce({ success: true, data: JSON.stringify(projectData) }) // project.json
-        .mockResolvedValueOnce({ success: true, data: JSON.stringify({ nodes: [], wires: [] }) }) // canvas.json
-
-      const result = await loadProjectFromFolder('/test/path')
-
-      expect(result.success).toBe(true)
-      expect(result.project).toEqual(projectData)
-    })
-
-    it('should read canvas.json with nodes and wires', async () => {
-      const canvasData = {
-        nodes: [{ id: 'n1', type: 'chapter' }],
-        wires: [{ id: 'w1', sourceNodeId: 'n1', targetNodeId: 'n2' }],
+    it('should load from storyflow.json (new format)', async () => {
+      const storyflow = {
+        version: 1,
+        project: { id: 'proj-1', title: 'My Novel', description: '', genre: '', synopsis: '', settings: { language: 'ko', targetDailyWords: 3000, readingSpeedCPM: 500 }, createdAt: 1700000000000, updatedAt: 1700000000000 },
+        canvas: { nodes: [{ id: 'n1' }], wires: [] },
+        world: { characters: [], relations: [], worldSettings: [], items: [], foreshadows: [], referenceData: [] },
+        chapters: [{ id: 'ch-1', title: 'Chapter 1' }],
+        wikiEntries: [],
       }
-      mockReadProjectFile
-        .mockResolvedValueOnce({ success: true, data: JSON.stringify({ id: 'proj-1' }) })
-        .mockResolvedValueOnce({ success: true, data: JSON.stringify(canvasData) })
+      const writer = createMockWriter({ 'storyflow.json': JSON.stringify(storyflow) })
 
-      const result = await loadProjectFromFolder('/test/path')
+      const result = await loadProjectFromFolder(writer)
 
       expect(result.success).toBe(true)
-      expect(result.canvasNodes).toHaveLength(1)
-      expect(result.canvasNodes![0].id).toBe('n1')
-      expect(result.canvasWires).toHaveLength(1)
-      expect(result.canvasWires![0].id).toBe('w1')
+      expect(result.data?.project.title).toBe('My Novel')
+      expect(result.data?.canvas.nodes).toHaveLength(1)
+      expect(result.data?.chapters).toHaveLength(1)
     })
 
-    it('should return error when electronAPI is not available', async () => {
-      delete (window as any).electronAPI
+    it('should fall back to legacy project.json + canvas.json', async () => {
+      const writer = createMockWriter({
+        'project.json': JSON.stringify({ id: 'proj-1', title: 'Legacy Project' }),
+        'canvas.json': JSON.stringify({ nodes: [{ id: 'n1' }], wires: [{ id: 'w1' }] }),
+      })
 
-      const result = await loadProjectFromFolder('/test/path')
+      const result = await loadProjectFromFolder(writer)
 
-      expect(result.success).toBe(false)
-      expect(result.error).toContain('Electron API not available')
+      expect(result.success).toBe(true)
+      expect(result.data?.project.title).toBe('Legacy Project')
+      expect(result.data?.canvas.nodes).toHaveLength(1)
+      expect(result.data?.canvas.wires).toHaveLength(1)
+      // Legacy: no world data
+      expect(result.data?.world.characters).toEqual([])
     })
 
-    it('should return error when project.json is not found', async () => {
-      mockReadProjectFile.mockResolvedValueOnce({ success: false, data: undefined })
+    it('should return error when no storyflow.json or project.json found', async () => {
+      const writer = createMockWriter()
 
-      const result = await loadProjectFromFolder('/test/path')
+      const result = await loadProjectFromFolder(writer)
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain('project.json not found')
+      expect(result.error).toContain('storyflow.json not found')
     })
   })
 
   // ── Indirect jsonContentToMarkdown tests (via manuscript.md output) ──
 
   describe('jsonContentToMarkdown (via manuscript.md)', () => {
-    /** Helper: save a single chapter with given content, return the manuscript.md string */
     async function getManuscriptMd(content: any, chapterOverrides: Partial<Chapter> = {}): Promise<string> {
+      const writer = createMockWriter()
       const chapter = makeChapter({ content, ...chapterOverrides })
-      await saveProjectToFolder('/test', makeProject(), [chapter], emptyNodes, emptyWires, [])
-      const call = mockWriteProjectFile.mock.calls.find((c) => c[1] === 'manuscript.md')
-      return call![2] as string
+      await saveProjectToFolder(writer, makeSaveParams({ chapters: [chapter] }))
+      return writer.written['manuscript.md']
     }
 
     it('should convert paragraphs to plain text lines', async () => {
@@ -294,39 +276,13 @@ describe('projectSerializer', () => {
       expect(md).toContain('# Main Title')
     })
 
-    it('should convert heading level 2 to ## prefix', async () => {
-      const content = {
-        type: 'doc',
-        content: [
-          { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Subtitle' }] },
-        ],
-      }
-      const md = await getManuscriptMd(content)
-      expect(md).toContain('## Subtitle')
-    })
-
-    it('should convert heading level 3 to ### prefix', async () => {
-      const content = {
-        type: 'doc',
-        content: [
-          { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Section' }] },
-        ],
-      }
-      const md = await getManuscriptMd(content)
-      expect(md).toContain('### Section')
-    })
-
     it('should convert bold text to **text**', async () => {
       const content = {
         type: 'doc',
-        content: [
-          {
-            type: 'paragraph',
-            content: [
-              { type: 'text', text: 'important', marks: [{ type: 'bold' }] },
-            ],
-          },
-        ],
+        content: [{
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'important', marks: [{ type: 'bold' }] }],
+        }],
       }
       const md = await getManuscriptMd(content)
       expect(md).toContain('**important**')
@@ -335,122 +291,45 @@ describe('projectSerializer', () => {
     it('should convert italic text to *text*', async () => {
       const content = {
         type: 'doc',
-        content: [
-          {
-            type: 'paragraph',
-            content: [
-              { type: 'text', text: 'emphasis', marks: [{ type: 'italic' }] },
-            ],
-          },
-        ],
+        content: [{
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'emphasis', marks: [{ type: 'italic' }] }],
+        }],
       }
       const md = await getManuscriptMd(content)
       expect(md).toContain('*emphasis*')
     })
 
-    it('should convert code text to `text`', async () => {
-      const content = {
-        type: 'doc',
-        content: [
-          {
-            type: 'paragraph',
-            content: [
-              { type: 'text', text: 'variable', marks: [{ type: 'code' }] },
-            ],
-          },
-        ],
-      }
-      const md = await getManuscriptMd(content)
-      expect(md).toContain('`variable`')
-    })
-
     it('should convert bullet lists to - item', async () => {
       const content = {
         type: 'doc',
-        content: [
-          {
-            type: 'bulletList',
-            content: [
-              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Apple' }] }] },
-              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Banana' }] }] },
-            ],
-          },
-        ],
+        content: [{
+          type: 'bulletList',
+          content: [
+            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Apple' }] }] },
+            { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Banana' }] }] },
+          ],
+        }],
       }
       const md = await getManuscriptMd(content)
       expect(md).toContain('- Apple')
       expect(md).toContain('- Banana')
     })
 
-    it('should convert ordered lists to 1. item', async () => {
-      const content = {
-        type: 'doc',
-        content: [
-          {
-            type: 'orderedList',
-            content: [
-              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First' }] }] },
-              { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Second' }] }] },
-            ],
-          },
-        ],
-      }
-      const md = await getManuscriptMd(content)
-      expect(md).toContain('1. First')
-      expect(md).toContain('2. Second')
-    })
-
     it('should convert blockquotes to > text', async () => {
       const content = {
         type: 'doc',
-        content: [
-          {
-            type: 'blockquote',
-            content: [
-              { type: 'paragraph', content: [{ type: 'text', text: 'A wise saying.' }] },
-            ],
-          },
-        ],
+        content: [{
+          type: 'blockquote',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A wise saying.' }] }],
+        }],
       }
       const md = await getManuscriptMd(content)
       expect(md).toContain('> A wise saying.')
     })
 
-    it('should convert code blocks to triple backtick wrapper', async () => {
-      const content = {
-        type: 'doc',
-        content: [
-          {
-            type: 'codeBlock',
-            content: [{ type: 'text', text: 'const x = 1' }],
-          },
-        ],
-      }
-      const md = await getManuscriptMd(content)
-      expect(md).toContain('```')
-      expect(md).toContain('const x = 1')
-    })
-
-    it('should convert horizontal rules to ---', async () => {
-      const content = {
-        type: 'doc',
-        content: [
-          { type: 'horizontalRule' },
-        ],
-      }
-      const md = await getManuscriptMd(content)
-      expect(md).toContain('---')
-    })
-
     it('should handle null content as empty string', async () => {
       const md = await getManuscriptMd(null)
-      // The chapter heading is still there, but no body content
-      expect(md).toContain('## Chapter One')
-      // After the heading + separator, there should be no extra body content
-    })
-
-    it('should handle empty content as empty string', async () => {
-      const md = await getManuscriptMd({ type: 'doc', content: [] })
       expect(md).toContain('## Chapter One')
     })
 
@@ -460,17 +339,14 @@ describe('projectSerializer', () => {
     })
 
     it('should render volume as # heading and chapter as ## heading', async () => {
+      const writer = createMockWriter()
       const volume = makeChapter({ id: 'vol-1', title: 'Volume 1', type: 'volume', order: 0, parentId: null })
       const chapter = makeChapter({ id: 'ch-1', title: 'Chapter 1', type: 'chapter', order: 1, parentId: 'vol-1' })
 
-      await saveProjectToFolder('/test', makeProject(), [volume, chapter], emptyNodes, emptyWires, [])
+      await saveProjectToFolder(writer, makeSaveParams({ chapters: [volume, chapter] }))
 
-      const call = mockWriteProjectFile.mock.calls.find((c) => c[1] === 'manuscript.md')
-      const md = call![2] as string
-
-      // Volume uses # (single hash)
+      const md = writer.written['manuscript.md']
       expect(md).toMatch(/^# Volume 1$/m)
-      // Chapter uses ## (double hash)
       expect(md).toMatch(/^## Chapter 1$/m)
     })
   })

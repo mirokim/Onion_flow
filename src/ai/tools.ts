@@ -11,6 +11,7 @@ import {
   ITEM_RARITIES,
   VERSIONABLE_ENTITY_TYPES,
   EMOTION_TYPES,
+  WIKI_CATEGORIES,
 } from './constants'
 
 export interface ToolDefinition {
@@ -165,7 +166,7 @@ export const AI_TOOLS: ToolDefinition[] = [
     parameters: {
       type: 'object',
       properties: {
-        dataType: { type: 'string', enum: ['characters', 'world_settings', 'items', 'outline', 'foreshadows', 'relations', 'chapter_content'] },
+        dataType: { type: 'string', enum: ['characters', 'world_settings', 'items', 'outline', 'foreshadows', 'relations', 'chapter_content', 'wiki_entries'] },
         entityId: { type: 'string' },
       },
       required: ['dataType'],
@@ -251,6 +252,44 @@ export const AI_TOOLS: ToolDefinition[] = [
         },
       },
       required: ['characterName', 'chapterEmotions'],
+    },
+  },
+  {
+    name: 'create_wiki_entry',
+    description: '위키 항목을 생성합니다.',
+    parameters: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', enum: [...WIKI_CATEGORIES] },
+        title: { type: 'string' },
+        content: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['category', 'title'],
+    },
+  },
+  {
+    name: 'update_wiki_entry',
+    description: '기존 위키 항목을 수정합니다.',
+    parameters: {
+      type: 'object',
+      properties: {
+        entryId: { type: 'string' },
+        title: { type: 'string' },
+        content: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+        category: { type: 'string', enum: [...WIKI_CATEGORIES] },
+      },
+      required: ['entryId'],
+    },
+  },
+  {
+    name: 'delete_wiki_entry',
+    description: '위키 항목을 삭제합니다.',
+    parameters: {
+      type: 'object',
+      properties: { entryId: { type: 'string' } },
+      required: ['entryId'],
     },
   },
   {

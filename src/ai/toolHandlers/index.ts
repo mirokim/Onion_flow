@@ -9,6 +9,7 @@ import {
 } from './chapterHandlers'
 import { handleGetCurrentState, handleCreateVersionSnapshot } from './queryHandlers'
 import { handleSaveRelation, handleAnalyzeCharacterEmotions, handleSetEditorOption } from './miscHandlers'
+import { handleCreateWikiEntry, handleUpdateWikiEntry, handleDeleteWikiEntry } from './wikiHandlers'
 
 type ToolHandler = (params: Record<string, any>, projectId: string) => Promise<ToolExecutionResult>
 
@@ -39,6 +40,10 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
 
   analyze_character_emotions: (p) => handleAnalyzeCharacterEmotions(p),
   set_editor_option: (p) => handleSetEditorOption(p),
+
+  create_wiki_entry: handleCreateWikiEntry,
+  update_wiki_entry: (p) => handleUpdateWikiEntry(p),
+  delete_wiki_entry: (p) => handleDeleteWikiEntry(p),
 
   respond: async (p) => ({ success: true, result: p.message || '' }),
 }

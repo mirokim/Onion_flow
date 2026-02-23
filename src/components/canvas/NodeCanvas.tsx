@@ -4,6 +4,7 @@ import {
   Background,
   Controls,
   MiniMap,
+  SelectionMode,
   type Connection,
   type Node,
   type Edge,
@@ -13,15 +14,13 @@ import {
   useReactFlow,
   ReactFlowProvider,
 } from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
 import { useCanvasStore } from '@/stores/canvasStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { BaseNode } from '@nodes/_base/BaseNode'
 import { GroupNode } from '@nodes/group/GroupNode'
 import { CanvasToolbar } from './CanvasToolbar'
 import { CanvasContextMenu } from './CanvasContextMenu'
-import { NODE_CATEGORY_COLORS, type NodeTypeDefinition } from '@nodes/index'
-import type { CanvasNodeCategory } from '@/types'
+import { getNodeDefinition, type NodeTypeDefinition } from '@nodes/index'
 import { toast } from '@/components/common/Toast'
 
 const nodeTypes = {
@@ -147,15 +146,11 @@ function NodeCanvasInner() {
           ),
         }))
       } else if (change.type === 'dimensions' && change.dimensions) {
-        // Update Zustand store with new dimensions
-        useCanvasStore.setState(s => ({
-          nodes: s.nodes.map(n =>
-            n.id === change.id
-              ? { ...n, width: change.dimensions!.width, height: change.dimensions!.height }
-              : n,
-          ),
-        }))
-        // Persist to DB only when resize is finished
+        // ⚠ Do NOT feed measured dimensions back into Zustand for every node!
+        // Doing so creates new node objects → ReactFlow re-measures → infinite loop,
+        // which also prevents handle-bounds from stabilising → edges never render.
+        // ReactFlow tracks measured dimensions internally; we only persist group
+        // resize to the DB when the user finishes resizing.
         if (!(change as any).resizing) {
           const sn = useCanvasStore.getState().nodes.find(n => n.id === change.id)
           if (sn?.type === 'group') {
@@ -201,12 +196,31 @@ function NodeCanvasInner() {
     x: number; y: number; canvasX: number; canvasY: number
   } | null>(null)
   const [contextTargetNodeId, setContextTargetNodeId] = useState<string | null>(null)
+  const [contextMenuInitialSubmenu, setContextMenuInitialSubmenu] = useState<'add-node' | null>(null)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition } = useReactFlow()
 
+  // ── Right-click drag detection (suppress context menu after panning) ──
+  const panStartRef = useRef<{ x: number; y: number } | null>(null)
+
+  // ── Edge reconnection tracking ──
+  const reconnectSuccessful = useRef(false)
+
   const onPaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
     event.preventDefault()
+    // If mouse moved >5px from right-click start, this was a pan drag — don't show menu
+    if (panStartRef.current) {
+      const dx = event.clientX - panStartRef.current.x
+      const dy = event.clientY - panStartRef.current.y
+      if (Math.sqrt(dx * dx + dy * dy) > 5) {
+        panStartRef.current = null
+        return
+      }
+    }
+    panStartRef.current = null
+
     const flowPos = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    setContextMenuInitialSubmenu(null)
     setContextTargetNodeId(null)
     setContextMenu({
       x: event.clientX,
@@ -219,7 +233,36 @@ function NodeCanvasInner() {
   const onNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
     event.preventDefault()
     const flowPos = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    setContextMenuInitialSubmenu(null)
     setContextTargetNodeId(node.id)
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      canvasX: flowPos.x,
+      canvasY: flowPos.y,
+    })
+  }, [screenToFlowPosition])
+
+  // Right-click on edge → quick delete (no context menu needed)
+  const onEdgeContextMenu = useCallback((event: React.MouseEvent, edge: Edge) => {
+    event.preventDefault()
+    disconnectWire(edge.id)
+  }, [disconnectWire])
+
+  // Single click on empty canvas → close context menu
+  const onPaneClick = useCallback(() => {
+    closeContextMenu()
+  }, [])
+
+  // Double-click on empty canvas → open add-node menu directly
+  // (using wrapper div onDoubleClick for reliability — onPaneClick.detail is unreliable)
+  const handleCanvasDoubleClick = useCallback((event: React.MouseEvent) => {
+    // Skip if double-click landed on a node or control
+    const target = event.target as HTMLElement
+    if (target.closest('.react-flow__node') || target.closest('.react-flow__controls')) return
+    const flowPos = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    setContextMenuInitialSubmenu('add-node')
+    setContextTargetNodeId(null)
     setContextMenu({
       x: event.clientX,
       y: event.clientY,
@@ -231,6 +274,7 @@ function NodeCanvasInner() {
   const closeContextMenu = useCallback(() => {
     setContextMenu(null)
     setContextTargetNodeId(null)
+    setContextMenuInitialSubmenu(null)
   }, [])
 
   // ── Handlers ──
@@ -277,6 +321,24 @@ function NodeCanvasInner() {
     [removeNode],
   )
 
+  const isValidConnection = useCallback((connection: Edge | Connection) => {
+    if (!connection.source || !connection.target) return false
+    if (connection.source === connection.target) return false
+
+    // Check for duplicate wires
+    const sourceHandle = connection.sourceHandle ?? null
+    const targetHandle = connection.targetHandle ?? null
+    const exists = storeWires.some(w =>
+      w.sourceNodeId === connection.source &&
+      w.targetNodeId === connection.target &&
+      w.sourceHandle === sourceHandle &&
+      w.targetHandle === targetHandle
+    )
+    if (exists) return false
+
+    return true
+  }, [storeWires])
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!currentProject || !connection.source || !connection.target) return
@@ -298,13 +360,12 @@ function NodeCanvasInner() {
     [updateNodePosition],
   )
 
+  // Node double-click depth entry disabled — hierarchy will be redesigned later
   const onNodeDoubleClick = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      // Don't enter depth for group nodes
-      if ((node.data as any)?.nodeType === 'group') return
-      enterDepth(node.id)
+    (_event: React.MouseEvent, _node: Node) => {
+      // noop: depth hierarchy disabled
     },
-    [enterDepth],
+    [],
   )
 
   const onNodesDelete = useCallback(
@@ -319,6 +380,38 @@ function NodeCanvasInner() {
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
       for (const edge of deleted) {
+        disconnectWire(edge.id)
+      }
+    },
+    [disconnectWire],
+  )
+
+  // ── Edge reconnection: drag handle to reconnect or drop on empty space to disconnect ──
+  const handleReconnectStart = useCallback(() => {
+    reconnectSuccessful.current = false
+  }, [])
+
+  const handleReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      reconnectSuccessful.current = true
+      if (!currentProject || !newConnection.source || !newConnection.target) return
+      // Delete old wire, create new one
+      disconnectWire(oldEdge.id)
+      connectNodesAction(
+        currentProject.id,
+        newConnection.source,
+        newConnection.target,
+        newConnection.sourceHandle || 'out',
+        newConnection.targetHandle || 'in',
+      )
+    },
+    [currentProject, disconnectWire, connectNodesAction],
+  )
+
+  const handleReconnectEnd = useCallback(
+    (_event: MouseEvent | TouchEvent, edge: Edge) => {
+      // If edge was dropped on empty space (not reconnected), disconnect it
+      if (!reconnectSuccessful.current) {
         disconnectWire(edge.id)
       }
     },
@@ -352,7 +445,14 @@ function NodeCanvasInner() {
   }, [contextTargetNodeId, canvasNodes])
 
   return (
-    <div ref={reactFlowWrapper} className="relative w-full h-full">
+    <div
+      ref={reactFlowWrapper}
+      className="absolute inset-0"
+      onMouseDownCapture={(e) => {
+        if (e.button === 2) panStartRef.current = { x: e.clientX, y: e.clientY }
+      }}
+      onDoubleClick={handleCanvasDoubleClick}
+    >
       <ReactFlow
         nodes={rfNodesWithSelection}
         edges={rfEdgesWithSelection}
@@ -365,6 +465,26 @@ function NodeCanvasInner() {
         onEdgesDelete={onEdgesDelete}
         onPaneContextMenu={onPaneContextMenu}
         onNodeContextMenu={onNodeContextMenu}
+        onEdgeContextMenu={onEdgeContextMenu}
+        onPaneClick={onPaneClick}
+        isValidConnection={isValidConnection}
+        // ── ComfyUI-style mouse interactions ──
+        panOnDrag={[1, 2]}
+        selectionOnDrag={true}
+        selectionMode={SelectionMode.Partial}
+        zoomOnDoubleClick={false}
+        snapToGrid={true}
+        snapGrid={[20, 20]}
+        // ── Edge reconnection ──
+        edgesReconnectable={true}
+        onReconnect={handleReconnect}
+        onReconnectStart={handleReconnectStart}
+        onReconnectEnd={handleReconnectEnd}
+        reconnectRadius={20}
+        elevateEdgesOnSelect={true}
+        // ── General config ──
+        connectionRadius={20}
+        connectionLineStyle={{ stroke: 'var(--color-accent)', strokeWidth: 2 }}
         nodeTypes={nodeTypes}
         fitView
         deleteKeyCode={['Backspace', 'Delete']}
@@ -376,17 +496,8 @@ function NodeCanvasInner() {
           nodeColor={(n) => {
             const nodeType = (n.data as any)?.nodeType
             if (!nodeType) return '#999'
-            if (nodeType === 'group') return NODE_CATEGORY_COLORS.structure
-            const catMap: Record<string, CanvasNodeCategory> = {
-              character: 'context', event: 'context', wiki: 'context',
-              personality: 'context', appearance: 'context', memory: 'context',
-              pov: 'direction', pacing: 'direction', style_transfer: 'direction',
-              storyteller: 'processing', summarizer: 'processing',
-              emotion_tracker: 'detector', foreshadow_detector: 'detector', conflict_defense: 'detector',
-              save_story: 'output',
-            }
-            const cat = catMap[nodeType] || 'special'
-            return NODE_CATEGORY_COLORS[cat] || '#999'
+            const def = getNodeDefinition(nodeType)
+            return def?.color || '#999'
           }}
           className="!bg-bg-secondary !border-border"
           maskColor="rgba(0,0,0,0.3)"
@@ -400,6 +511,7 @@ function NodeCanvasInner() {
         targetNodeId={contextTargetNodeId}
         targetNodeGroupId={targetNodeGroupId}
         groupNodeIds={groupNodeIds}
+        initialSubmenu={contextMenuInitialSubmenu}
         onAddNode={handleAddNodeAtPosition}
         onAddGroup={handleAddGroup}
         onDeleteNode={handleDeleteNode}

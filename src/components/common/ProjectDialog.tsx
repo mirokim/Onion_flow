@@ -1,12 +1,13 @@
 /**
  * ProjectDialog - Project management dialog.
  * Create new project (with folder selection), open existing project folder,
- * and view recent projects.
+ * and view recent projects. Supports both Electron and Web File System Access API.
  */
 import { useState } from 'react'
 import { FolderOpen, Plus, X, Folder } from 'lucide-react'
 import { useProjectStore } from '@/stores/projectStore'
-import { loadProjectFromFolder } from '@/db/projectSerializer'
+import { loadProjectFromFolder, saveProjectToFolder } from '@/db/projectSerializer'
+import { createElectronWriter, createWebWriter, getFileWriter } from '@/db/fileWriter'
 import { toast } from './Toast'
 import { cn } from '@/lib/utils'
 import { formatDateUTC } from '@/lib/dateUtils'
@@ -27,9 +28,23 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
   const api = window.electronAPI
 
   const handleSelectFolder = async () => {
-    if (!api) return
-    const folder = await api.selectFolder()
-    if (folder) setSelectedFolderPath(folder)
+    if (api) {
+      // Electron: native folder dialog
+      const folder = await api.selectFolder()
+      if (folder) setSelectedFolderPath(folder)
+    } else if ('showDirectoryPicker' in window) {
+      // Web: File System Access API (Chrome/Edge)
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' })
+        // Store handle on window for later use by auto-save
+        ;(window as any).__onionFlowDirHandle = dirHandle
+        setSelectedFolderPath(dirHandle.name)
+      } catch {
+        // User cancelled
+      }
+    } else {
+      toast.warning('이 브라우저에서는 폴더 선택을 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.')
+    }
   }
 
   const handleCreateProject = async () => {
@@ -38,26 +53,35 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
       return
     }
 
-    // Use local variable to avoid race condition with async setState
-    let folderPath = selectedFolderPath
-    if (api && !folderPath) {
-      folderPath = await api.selectFolder()
-      if (!folderPath) return // User cancelled
-      setSelectedFolderPath(folderPath)
-    }
-
     const project = await createProject(newTitle.trim())
+    const { updateProject } = useProjectStore.getState()
 
-    // Update project with folder path if Electron
-    if (folderPath && api) {
-      const projectFolderPath = `${folderPath}/${newTitle.trim()}`
-      await api.createFolder(projectFolderPath)
+    if (selectedFolderPath) {
+      if (api) {
+        // Electron: create subfolder and store path
+        const projectFolderPath = `${selectedFolderPath}/${newTitle.trim()}`
+        await api.createFolder(projectFolderPath)
+        await updateProject(project.id, { folderPath: projectFolderPath } as any)
+        toast.success(`프로젝트가 ${projectFolderPath}에 생성되었습니다.`)
 
-      // Store the folder path
-      const { updateProject } = useProjectStore.getState()
-      await updateProject(project.id, { folderPath: projectFolderPath } as any)
-
-      toast.success(`프로젝트가 ${projectFolderPath}에 생성되었습니다.`)
+        // Initial save to folder
+        const writer = createElectronWriter(projectFolderPath)
+        await performInitialSave(writer, { ...project, folderPath: projectFolderPath })
+      } else {
+        // Web: mark as folder storage and perform initial save
+        await updateProject(project.id, { usesFolderStorage: true } as any)
+        const dirHandle = (window as any).__onionFlowDirHandle as FileSystemDirectoryHandle | undefined
+        if (dirHandle) {
+          // Create project subfolder
+          const subDirHandle = await dirHandle.getDirectoryHandle(newTitle.trim(), { create: true })
+          ;(window as any).__onionFlowDirHandle = subDirHandle
+          const writer = createWebWriter(subDirHandle)
+          await performInitialSave(writer, { ...project, usesFolderStorage: true })
+          toast.success(`프로젝트 "${newTitle.trim()}"이(가) 생성되었습니다. 폴더에 저장됩니다.`)
+        }
+      }
+    } else {
+      toast.success(`프로젝트 "${newTitle.trim()}"이(가) 생성되었습니다.`)
     }
 
     setNewTitle('')
@@ -66,32 +90,97 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
     onClose()
   }
 
+  /** Perform initial save of empty project to folder */
+  const performInitialSave = async (writer: import('@/db/fileWriter').FileWriterHandle, project: any) => {
+    try {
+      const { chapters } = useProjectStore.getState()
+      const { useCanvasStore } = await import('@/stores/canvasStore')
+      const { nodes, wires } = useCanvasStore.getState()
+      const { useWikiStore } = await import('@/stores/wikiStore')
+      const { entries } = useWikiStore.getState()
+      const { useWorldStore } = await import('@/stores/worldStore')
+      const worldState = useWorldStore.getState()
+
+      await saveProjectToFolder(writer, {
+        project,
+        chapters,
+        canvasNodes: nodes.filter(n => n.projectId === project.id),
+        canvasWires: wires.filter(w => w.projectId === project.id),
+        wikiEntries: entries.filter(e => e.projectId === project.id),
+        characters: worldState.characters,
+        relations: worldState.relations,
+        worldSettings: worldState.worldSettings,
+        items: worldState.items,
+        foreshadows: worldState.foreshadows,
+        referenceData: worldState.referenceData,
+      })
+    } catch (err) {
+      console.error('[InitialSave] Failed:', err)
+    }
+  }
+
   const handleOpenFolder = async () => {
-    if (!api) {
-      toast.warning('폴더 열기는 데스크톱 앱에서만 가능합니다.')
-      return
-    }
+    let writer: import('@/db/fileWriter').FileWriterHandle | null = null
 
-    const folderPath = await api.selectFolder()
-    if (!folderPath) return
+    if (api) {
+      // Electron: native folder dialog
+      const folderPath = await api.selectFolder()
+      if (!folderPath) return
+      writer = createElectronWriter(folderPath)
 
-    const result = await loadProjectFromFolder(folderPath)
-    if (!result.success || !result.project) {
-      toast.error(`프로젝트를 열 수 없습니다: ${result.error}`)
-      return
-    }
+      const result = await loadProjectFromFolder(writer)
+      if (!result.success || !result.data) {
+        toast.error(`프로젝트를 열 수 없습니다: ${result.error}`)
+        return
+      }
 
-    // Check if this project already exists locally
-    const existingProject = projects.find(p => p.id === result.project!.id)
-    if (existingProject) {
-      await selectProject(existingProject.id)
-      toast.info('기존 프로젝트가 선택되었습니다.')
+      // Check if this project already exists locally
+      const existingProject = projects.find(p => p.id === result.data!.project.id)
+      if (existingProject) {
+        await selectProject(existingProject.id)
+        toast.info('기존 프로젝트가 선택되었습니다.')
+      } else {
+        // Load all data from folder into stores
+        const { loadFromFolder } = useProjectStore.getState()
+        await loadFromFolder(result.data, folderPath)
+        toast.success('프로젝트를 불러왔습니다.')
+      }
+    } else if ('showDirectoryPicker' in window) {
+      // Web: File System Access API
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' })
+        writer = createWebWriter(dirHandle)
+
+        const result = await loadProjectFromFolder(writer)
+        if (!result.success || !result.data) {
+          toast.error(`프로젝트를 열 수 없습니다: ${result.error}`)
+          return
+        }
+
+        // Store dirHandle for auto-save
+        ;(window as any).__onionFlowDirHandle = dirHandle
+
+        // Check if this project already exists locally
+        const existingProject = projects.find(p => p.id === result.data!.project.id)
+        if (existingProject) {
+          // Update usesFolderStorage flag and select
+          const { updateProject } = useProjectStore.getState()
+          await updateProject(existingProject.id, { usesFolderStorage: true } as any)
+          await selectProject(existingProject.id)
+          toast.info('기존 프로젝트가 선택되었습니다.')
+        } else {
+          // Load all data from folder into stores
+          const { loadFromFolder } = useProjectStore.getState()
+          await loadFromFolder(result.data, undefined, true)
+          toast.success('프로젝트를 불러왔습니다.')
+        }
+      } catch {
+        // User cancelled
+        return
+      }
     } else {
-      // Create new project from folder data
-      const project = await createProject(result.project.title || 'Imported Project')
-      const { updateProject } = useProjectStore.getState()
-      await updateProject(project.id, { folderPath } as any)
-      toast.success('프로젝트를 불러왔습니다.')
+      toast.warning('이 브라우저에서는 폴더 열기를 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.')
+      return
     }
 
     onClose()
@@ -132,15 +221,13 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
                 새 프로젝트
               </button>
 
-              {api && (
-                <button
-                  onClick={handleOpenFolder}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-bg-hover border border-border text-text-primary text-xs font-semibold hover:bg-bg-secondary transition"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                  폴더 열기
-                </button>
-              )}
+              <button
+                onClick={handleOpenFolder}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-bg-hover border border-border text-text-primary text-xs font-semibold hover:bg-bg-secondary transition"
+              >
+                <FolderOpen className="w-4 h-4" />
+                폴더 열기
+              </button>
             </div>
 
             {/* Recent projects */}
@@ -159,9 +246,14 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
                         <div className="text-xs font-medium text-text-primary truncate">
                           {p.title}
                         </div>
-                        {(p as any).folderPath && (
+                        {p.folderPath && (
                           <div className="text-[10px] text-text-muted truncate">
-                            {truncatePath((p as any).folderPath)}
+                            {truncatePath(p.folderPath)}
+                          </div>
+                        )}
+                        {!p.folderPath && p.usesFolderStorage && (
+                          <div className="text-[10px] text-text-muted truncate">
+                            폴더 저장 (재선택 필요)
                           </div>
                         )}
                       </div>
@@ -193,32 +285,35 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
               />
             </div>
 
-            {api && (
-              <div>
-                <label className="block text-xs font-medium text-text-secondary mb-1">
-                  저장 위치
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 px-3 py-2 rounded-lg bg-bg-primary border border-border text-text-muted text-xs truncate min-h-[36px] flex items-center">
-                    {selectedFolderPath
-                      ? <span className="text-text-primary">{truncatePath(selectedFolderPath, 50)}</span>
-                      : <span>폴더를 선택하세요...</span>
-                    }
-                  </div>
-                  <button
-                    onClick={handleSelectFolder}
-                    className="shrink-0 px-3 py-2 rounded-lg bg-bg-hover border border-border text-text-primary text-xs font-medium hover:bg-bg-secondary transition"
-                  >
-                    <FolderOpen className="w-4 h-4" />
-                  </button>
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1">
+                저장 위치 <span className="text-text-muted font-normal">(선택사항)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 px-3 py-2 rounded-lg bg-bg-primary border border-border text-text-muted text-xs truncate min-h-[36px] flex items-center">
+                  {selectedFolderPath
+                    ? <span className="text-text-primary">{truncatePath(selectedFolderPath, 50)}</span>
+                    : <span>폴더를 선택하세요...</span>
+                  }
                 </div>
-                {selectedFolderPath && newTitle.trim() && (
-                  <p className="text-[10px] text-text-muted mt-1">
-                    → {selectedFolderPath}/{newTitle.trim()}
-                  </p>
-                )}
+                <button
+                  onClick={handleSelectFolder}
+                  className="shrink-0 px-3 py-2 rounded-lg bg-bg-hover border border-border text-text-primary text-xs font-medium hover:bg-bg-secondary transition"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </button>
               </div>
-            )}
+              {selectedFolderPath && newTitle.trim() && (
+                <p className="text-[10px] text-text-muted mt-1">
+                  → {selectedFolderPath}/{newTitle.trim()}
+                </p>
+              )}
+              {!selectedFolderPath && (
+                <p className="text-[10px] text-text-muted mt-1">
+                  미선택 시 브라우저 내장 저장소(IndexedDB)에만 저장됩니다.
+                </p>
+              )}
+            </div>
 
             <div className="flex gap-2">
               <button

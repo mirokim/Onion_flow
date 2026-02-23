@@ -11,7 +11,8 @@ export interface Project {
   createdAt: number
   updatedAt: number
   settings: ProjectSettings
-  folderPath?: string    // Local folder path (Electron only)
+  folderPath?: string           // Local folder path (Electron)
+  usesFolderStorage?: boolean   // Web: true when File System Access API dirHandle is set
 }
 
 export interface ProjectSettings {
@@ -89,9 +90,19 @@ export type CanvasNodeType =
   | 'cliffhanger' | 'virtual_reader'
   | 'emotion_tracker' | 'foreshadow_detector' | 'conflict_defense'
   | 'group'
+  // Plot type nodes
+  | 'plot_overcome' | 'plot_hero_journey' | 'plot_rags_to_riches'
+  | 'plot_tragedy' | 'plot_comedy' | 'plot_rebirth'
+  | 'plot_voyage_return' | 'plot_forbidden_love' | 'plot_revenge'
+  | 'plot_mystery'
+  | 'plot_linear' | 'plot_nonlinear' | 'plot_circular'
+  | 'plot_episodic' | 'plot_three_act' | 'plot_five_act'
+  | 'plot_freytag'
+  | 'plot_dystopia' | 'plot_thriller' | 'plot_romance'
+  | 'plot_horror' | 'plot_experimental'
   | (string & {})   // Allow custom node types from plugins
 
-export type CanvasNodeCategory = 'context' | 'direction' | 'processing' | 'special' | 'detector' | 'structure' | 'output'
+export type CanvasNodeCategory = 'context' | 'direction' | 'processing' | 'special' | 'detector' | 'structure' | 'output' | 'plot'
 
 export interface CanvasNode {
   id: string
@@ -118,12 +129,15 @@ export interface CanvasWire {
 
 // ── Characters ──
 
+export type CharacterPosition = 'rival' | 'villain' | 'friend' | 'mentor' | 'sidekick' | 'love_interest' | 'family' | 'subordinate' | 'neutral' | 'custom'
+
 export interface Character {
   id: string
   projectId: string
   name: string
   aliases: string[]
   role: 'protagonist' | 'antagonist' | 'supporting' | 'minor'
+  position: CharacterPosition
   personality: string
   abilities: string
   appearance: string
@@ -229,7 +243,14 @@ export interface Foreshadow {
 
 // ── Wiki ──
 
-export type WikiCategory = WorldSettingCategory | 'character' | 'item' | 'custom'
+export type WikiCategory = WorldSettingCategory
+  | 'character' | 'character_personality' | 'character_appearance' | 'character_memory'
+  | 'event' | 'story'
+  | 'item' | 'custom'
+
+export type WikiFilterCategory = WikiCategory
+  | 'group_character' | 'group_narrative' | 'group_world' | 'group_other'
+  | 'all'
 
 export interface WikiEntry {
   id: string

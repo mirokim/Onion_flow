@@ -6,6 +6,7 @@ import { nowUTC } from '@/lib/dateUtils'
 import { createEntity, withUpdatedAt, mapUpdate } from '@/lib/storeHelpers'
 import type { JSONContent } from '@tiptap/react'
 import { useEditorStore } from './editorStore'
+import type { StoryFlowFile } from '@/db/projectSerializer'
 
 interface DeletedChapterEntry {
   chapter: Chapter
@@ -41,6 +42,9 @@ interface ProjectState {
   moveChapterToPosition: (id: string, targetParentId: string | null, targetOrder: number) => Promise<void>
   insertChapterAt: (title: string, parentId: string | null, order: number, type?: 'volume' | 'chapter') => Promise<Chapter>
   toggleExpanded: (id: string) => void
+
+  // Folder-based loading
+  loadFromFolder: (data: StoryFlowFile, folderPath?: string, usesFolderStorage?: boolean) => Promise<void>
 
   // Computed
   getChapterTree: () => ChapterTreeItem[]
@@ -361,6 +365,101 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set(s => ({
       chapters: s.chapters.map(c => c.id === id ? { ...c, isExpanded: !c.isExpanded } : c),
     }))
+  },
+
+  loadFromFolder: async (data: StoryFlowFile, folderPath?: string, usesFolderStorage?: boolean) => {
+    const adapter = getAdapter()
+
+    // Build project entity
+    const project: Project = {
+      id: data.project.id || generateId(),
+      title: data.project.title,
+      description: data.project.description || '',
+      genre: data.project.genre || '',
+      synopsis: data.project.synopsis || '',
+      settings: data.project.settings || { language: 'ko', targetDailyWords: 3000, readingSpeedCPM: 500 },
+      createdAt: data.project.createdAt || nowUTC(),
+      updatedAt: data.project.updatedAt || nowUTC(),
+      ...(folderPath ? { folderPath } : {}),
+      ...(usesFolderStorage ? { usesFolderStorage: true } : {}),
+    }
+
+    // Check if project already exists — update or insert
+    const existing = await adapter.fetchProject(project.id)
+    if (existing) {
+      await adapter.updateProject(project.id, project)
+    } else {
+      await adapter.insertProject(project)
+    }
+
+    // Insert chapters (clear existing first)
+    await adapter.deleteChaptersByProject(project.id)
+    for (const ch of data.chapters || []) {
+      await adapter.insertChapter({ ...ch, projectId: project.id })
+    }
+
+    // Insert canvas nodes/wires (clear existing first)
+    await adapter.deleteCanvasNodesByProject(project.id)
+    await adapter.deleteCanvasWiresByProject(project.id)
+    for (const node of data.canvas?.nodes || []) {
+      await adapter.insertCanvasNode({ ...node, projectId: project.id })
+    }
+    for (const wire of data.canvas?.wires || []) {
+      await adapter.insertCanvasWire({ ...wire, projectId: project.id })
+    }
+
+    // Insert wiki entries (clear existing first)
+    await adapter.deleteWikiEntriesByProject(project.id)
+    for (const entry of data.wikiEntries || []) {
+      await adapter.insertWikiEntry({ ...entry, projectId: project.id })
+    }
+
+    // Insert world data
+    // Characters
+    const existingChars = await adapter.fetchCharacters(project.id)
+    for (const c of existingChars) await adapter.deleteCharacter(c.id)
+    for (const c of data.world?.characters || []) {
+      await adapter.insertCharacter({ ...c, projectId: project.id })
+    }
+
+    // Relations
+    const existingRels = await adapter.fetchRelations(project.id)
+    for (const r of existingRels) await adapter.deleteRelation(r.id)
+    for (const r of data.world?.relations || []) {
+      await adapter.insertRelation({ ...r, projectId: project.id })
+    }
+
+    // World settings
+    const existingWS = await adapter.fetchWorldSettings(project.id)
+    for (const ws of existingWS) await adapter.deleteWorldSetting(ws.id)
+    for (const ws of data.world?.worldSettings || []) {
+      await adapter.insertWorldSetting({ ...ws, projectId: project.id })
+    }
+
+    // Items
+    const existingItems = await adapter.fetchItems(project.id)
+    for (const item of existingItems) await adapter.deleteItem(item.id)
+    for (const item of data.world?.items || []) {
+      await adapter.insertItem({ ...item, projectId: project.id })
+    }
+
+    // Foreshadows
+    const existingFS = await adapter.fetchForeshadows(project.id)
+    for (const f of existingFS) await adapter.deleteForeshadow(f.id)
+    for (const f of data.world?.foreshadows || []) {
+      await adapter.insertForeshadow({ ...f, projectId: project.id })
+    }
+
+    // Reference Data
+    const existingRD = await adapter.fetchReferenceData(project.id)
+    for (const rd of existingRD) await adapter.deleteReferenceData(rd.id)
+    for (const rd of data.world?.referenceData || []) {
+      await adapter.insertReferenceData({ ...rd, projectId: project.id })
+    }
+
+    // Reload projects list and select this project
+    await get().loadProjects()
+    await get().selectProject(project.id)
   },
 
   getChapterTree: () => {

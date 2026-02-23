@@ -20,6 +20,7 @@ interface CanvasContextMenuProps {
   targetNodeId: string | null
   targetNodeGroupId: string | null
   groupNodeIds: string[]
+  initialSubmenu?: 'add-node' | null
   onAddNode: (def: NodeTypeDefinition, position: { x: number; y: number }) => void
   onAddGroup: (position: { x: number; y: number }) => void
   onDeleteNode: (nodeId: string) => void
@@ -35,6 +36,7 @@ const CATEGORIES: { key: CanvasNodeCategory; label: string; labelKo: string }[] 
   { key: 'special', label: 'Special', labelKo: '스페셜' },
   { key: 'detector', label: 'Detector', labelKo: '디텍터' },
   { key: 'output', label: 'Output', labelKo: '출력' },
+  { key: 'plot', label: 'Plot', labelKo: '플롯' },
 ]
 
 export function CanvasContextMenu({
@@ -42,6 +44,7 @@ export function CanvasContextMenu({
   targetNodeId,
   targetNodeGroupId,
   groupNodeIds,
+  initialSubmenu,
   onAddNode,
   onAddGroup,
   onDeleteNode,
@@ -71,11 +74,11 @@ export function CanvasContextMenu({
     }
   }, [position, onClose])
 
-  // Reset submenu when position changes
+  // Reset submenu when position changes; use initialSubmenu if provided (e.g. double-click → add-node)
   useEffect(() => {
-    setSubmenu(null)
+    setSubmenu(initialSubmenu ?? null)
     setSelectedCategory('context')
-  }, [position])
+  }, [position, initialSubmenu])
 
   if (!position) return null
 

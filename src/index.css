@@ -421,6 +421,81 @@
   fill: var(--color-bg-primary) !important;
 }
 
+/* ── Tailwind v4 compatibility: prevent preflight from breaking xyflow ── */
+/*
+ * Tailwind v4 preflight resets that break xyflow:
+ *   svg { display:block; overflow:hidden (implied by border-box model) }
+ *   * { border:0 solid; box-sizing:border-box }
+ * The rules below use !important to override layered Tailwind base styles.
+ */
+
+/* Nodes must allow handles to overflow */
+.react-flow__node {
+  overflow: visible !important;
+}
+
+/* Edge SVG container: must be absolutely positioned with visible overflow.
+   Without this, edges are invisible because the SVG is clipped or collapsed. */
+.react-flow .react-flow__edges {
+  pointer-events: none !important;
+}
+
+.react-flow .react-flow__edges svg {
+  overflow: visible !important;
+  position: absolute !important;
+}
+
+/* All SVGs inside the ReactFlow viewport need overflow:visible */
+.react-flow svg {
+  overflow: visible !important;
+}
+
+/* Connection line SVG also needs overflow:visible */
+svg.react-flow__connectionline {
+  overflow: visible !important;
+}
+
+/* Edge paths must be visible — Tailwind preflight border reset can interfere */
+.react-flow__edge path {
+  stroke-opacity: 1 !important;
+  fill: none !important;
+}
+
+/* Edge hover: thicker stroke for easier selection */
+.react-flow__edge:hover path.react-flow__edge-path {
+  stroke-width: 3 !important;
+  cursor: pointer;
+}
+
+/* Selected edge: glow highlight */
+.react-flow__edge.selected path.react-flow__edge-path {
+  stroke-width: 3 !important;
+  filter: drop-shadow(0 0 4px var(--color-accent));
+}
+
+/* Make edge interaction area wider for easier clicking */
+.react-flow__edge path.react-flow__edge-interaction {
+  stroke-width: 20 !important;
+}
+
+/* Edge reconnection handles (invisible circles at edge endpoints) */
+.react-flow__edgeupdater {
+  pointer-events: all !important;
+  cursor: move !important;
+}
+
+/* Handles need pointer-events to be draggable for creating connections */
+.react-flow__handle.connectionindicator {
+  pointer-events: all !important;
+  cursor: crosshair !important;
+}
+
+/* Connection line styling during drag */
+.react-flow__connection-path {
+  stroke: var(--color-accent) !important;
+  stroke-width: 2 !important;
+}
+
 /* ── Onion Heading (Virtual Fractal) ── */
 .tiptap [data-type="onion-heading"] {
   position: relative;

@@ -25,20 +25,19 @@ interface TopBarProps {
 export function TopBar({ onToggleStats, onToggleTimeline, onToggleExport, onOpenProjectDialog, onOpenSettings }: TopBarProps) {
   const { t } = useTranslation()
   const { currentProject, currentChapter } = useProjectStore()
-  const { openTabs, toggleTab, toggleFocusMode } = useEditorStore()
+  const { openTabs, toggleTab, toggleFocusMode, showOpenFilesPanel, toggleOpenFilesPanel } = useEditorStore()
 
-  const canvasOpen = openTabs.includes('canvas')
   const wikiOpen = openTabs.includes('wiki')
 
   return (
     <header className="h-10 flex items-center justify-between px-3 border-b border-border bg-bg-secondary shrink-0 select-none">
       <div className="flex items-center gap-2">
         <button
-          onClick={() => toggleTab('canvas')}
+          onClick={toggleOpenFilesPanel}
           className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
-          title={canvasOpen ? t('layout.hideCanvas') : t('layout.showCanvas')}
+          title={showOpenFilesPanel ? '파일 탭 숨기기' : '파일 탭 보이기'}
         >
-          {canvasOpen
+          {showOpenFilesPanel
             ? <PanelLeftClose className="w-4 h-4" />
             : <PanelLeftOpen className="w-4 h-4" />
           }

@@ -10,6 +10,7 @@ import { ProjectDialog } from '@/components/common/ProjectDialog'
 import { getAdapter } from '@/db/storageAdapter'
 import { initNodeRegistry } from '@nodes/index'
 import { saveProjectToFolder } from '@/db/projectSerializer'
+import { getFileWriter } from '@/db/fileWriter'
 
 const AUTO_SAVE_INTERVAL = 60_000 // 60 seconds
 
@@ -47,30 +48,44 @@ export default function App() {
     return () => { cancelled = true }
   }, [])
 
-  // Auto-save to folder every 60 seconds (if project has folderPath)
+  // Auto-save to folder every 60 seconds (Electron + Web File System API)
   useEffect(() => {
     const interval = setInterval(async () => {
       const project = useProjectStore.getState().currentProject
-      if (!project?.folderPath) return
+      if (!project) return
 
-      const { chapters } = useProjectStore.getState()
-      const { useCanvasStore } = await import('@/stores/canvasStore')
-      const { nodes, wires } = useCanvasStore.getState()
-      const { useWikiStore } = await import('@/stores/wikiStore')
-      const { entries } = useWikiStore.getState()
+      const writer = getFileWriter(project)
+      if (!writer?.isAvailable()) return
 
-      const projectNodes = nodes.filter(n => n.projectId === project.id)
-      const projectWires = wires.filter(w => w.projectId === project.id)
-      const projectEntries = entries.filter(e => e.projectId === project.id)
+      try {
+        const { chapters } = useProjectStore.getState()
+        const { useCanvasStore } = await import('@/stores/canvasStore')
+        const { nodes, wires } = useCanvasStore.getState()
+        const { useWikiStore } = await import('@/stores/wikiStore')
+        const { entries } = useWikiStore.getState()
+        const { useWorldStore } = await import('@/stores/worldStore')
+        const worldState = useWorldStore.getState()
 
-      await saveProjectToFolder(
-        project.folderPath!,
-        project,
-        chapters,
-        projectNodes,
-        projectWires,
-        projectEntries,
-      )
+        const projectNodes = nodes.filter(n => n.projectId === project.id)
+        const projectWires = wires.filter(w => w.projectId === project.id)
+        const projectEntries = entries.filter(e => e.projectId === project.id)
+
+        await saveProjectToFolder(writer, {
+          project,
+          chapters,
+          canvasNodes: projectNodes,
+          canvasWires: projectWires,
+          wikiEntries: projectEntries,
+          characters: worldState.characters,
+          relations: worldState.relations,
+          worldSettings: worldState.worldSettings,
+          items: worldState.items,
+          foreshadows: worldState.foreshadows,
+          referenceData: worldState.referenceData,
+        })
+      } catch (err) {
+        console.error('[Auto-save] Failed:', err)
+      }
     }, AUTO_SAVE_INTERVAL)
 
     return () => clearInterval(interval)

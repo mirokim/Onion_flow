@@ -1,9 +1,12 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
-import type { AIConfig, AIMessage, AIProvider, PromptTemplate, AIConversation } from '@/types'
+import type { AIConfig, AIMessage, AIProvider, AIToolCall, AIToolResult, PromptTemplate, AIConversation } from '@/types'
 import { generateId } from '@/lib/utils'
 import { nowUTC } from '@/lib/dateUtils'
 import { getAdapter } from '@/db/storageAdapter'
+import { callWithTools, buildToolResultMessages, type ProviderResponse } from '@/ai/providers'
+import { executeTool } from '@/ai/toolExecutor'
+import { buildChatSystemPrompt } from '@/ai/chatSystemPrompt'
 
 interface AIState {
   configs: Record<AIProvider, AIConfig>
@@ -66,8 +69,25 @@ const DEFAULT_TEMPLATES: PromptTemplate[] = [
   { id: '14', name: '챕터 시놉시스 작성', prompt: '현재 챕터의 내용을 읽고 시놉시스를 작성하여 저장해주세요.', category: 'action' },
 ]
 
-// ── Security: Obfuscate API keys in localStorage ──
+// ── Security: API key encryption ──
+// Electron: OS-level encryption via safeStorage (DPAPI on Windows, Keychain on macOS)
+// Web fallback: XOR obfuscation (better than plaintext but not truly secure)
+
+const PROVIDERS = ['openai', 'anthropic', 'gemini', 'llama', 'grok'] as const
 const OBFUSCATION_KEY = 'onion-flow-salt-2025'
+
+/** Pending encrypt/decrypt promises from Electron safeStorage */
+let _safeStorageReady: boolean | null = null
+
+async function isSafeStorageAvailable(): Promise<boolean> {
+  if (_safeStorageReady !== null) return _safeStorageReady
+  if (!window.electronAPI?.safeStorageAvailable) {
+    _safeStorageReady = false
+    return false
+  }
+  _safeStorageReady = await window.electronAPI.safeStorageAvailable()
+  return _safeStorageReady
+}
 
 function obfuscateApiKey(key: string): string {
   if (!key) return ''
@@ -97,6 +117,66 @@ function deobfuscateApiKey(stored: string): string {
   }
 }
 
+/**
+ * Encrypt API keys using Electron safeStorage (if available).
+ * Called asynchronously after setItem writes the obfuscated fallback.
+ */
+async function encryptApiKeysAsync(name: string): Promise<void> {
+  if (!await isSafeStorageAvailable()) return
+  const raw = localStorage.getItem(name)
+  if (!raw) return
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed?.state?.configs) return
+    let changed = false
+    for (const provider of PROVIDERS) {
+      const apiKey = parsed.state.configs[provider]?.apiKey
+      if (apiKey && !apiKey.startsWith('safe:')) {
+        // Deobfuscate first if already obfuscated, to get plaintext
+        const plain = apiKey.startsWith('enc:') ? deobfuscateApiKey(apiKey) : apiKey
+        const encrypted = await window.electronAPI!.safeEncrypt(plain)
+        if (encrypted) {
+          parsed.state.configs[provider].apiKey = 'safe:' + encrypted
+          changed = true
+        }
+      }
+    }
+    if (changed) {
+      localStorage.setItem(name, JSON.stringify(parsed))
+    }
+  } catch { /* ignore */ }
+}
+
+/**
+ * Decrypt API keys from Electron safeStorage.
+ * Falls back to XOR deobfuscation for 'enc:' prefixed keys.
+ */
+async function decryptApiKeysAsync(name: string): Promise<string | null> {
+  const raw = localStorage.getItem(name)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!parsed?.state?.configs) return raw
+    for (const provider of PROVIDERS) {
+      const apiKey = parsed.state.configs[provider]?.apiKey
+      if (!apiKey) continue
+      if (apiKey.startsWith('safe:') && window.electronAPI?.safeDecrypt) {
+        const decrypted = await window.electronAPI.safeDecrypt(apiKey.slice(5))
+        if (decrypted) {
+          parsed.state.configs[provider].apiKey = decrypted
+        } else {
+          parsed.state.configs[provider].apiKey = ''
+        }
+      } else if (apiKey.startsWith('enc:')) {
+        parsed.state.configs[provider].apiKey = deobfuscateApiKey(apiKey)
+      }
+    }
+    return JSON.stringify(parsed)
+  } catch {
+    return raw
+  }
+}
+
 const secureStorage: StateStorage = {
   getItem: (name: string): string | null => {
     const raw = localStorage.getItem(name)
@@ -104,9 +184,15 @@ const secureStorage: StateStorage = {
     try {
       const parsed = JSON.parse(raw)
       if (parsed?.state?.configs) {
-        for (const provider of ['openai', 'anthropic', 'gemini', 'llama', 'grok']) {
-          if (parsed.state.configs[provider]?.apiKey) {
-            parsed.state.configs[provider].apiKey = deobfuscateApiKey(parsed.state.configs[provider].apiKey)
+        for (const provider of PROVIDERS) {
+          const apiKey = parsed.state.configs[provider]?.apiKey
+          if (!apiKey) continue
+          // safe: keys are decrypted asynchronously after init (see rehydration below)
+          if (apiKey.startsWith('safe:')) {
+            // Return empty temporarily; async decrypt will update state
+            parsed.state.configs[provider].apiKey = ''
+          } else if (apiKey.startsWith('enc:')) {
+            parsed.state.configs[provider].apiKey = deobfuscateApiKey(apiKey)
           }
         }
       }
@@ -119,13 +205,16 @@ const secureStorage: StateStorage = {
     try {
       const parsed = JSON.parse(value)
       if (parsed?.state?.configs) {
-        for (const provider of ['openai', 'anthropic', 'gemini', 'llama', 'grok']) {
+        for (const provider of PROVIDERS) {
           if (parsed.state.configs[provider]?.apiKey) {
+            // Immediately obfuscate as fallback
             parsed.state.configs[provider].apiKey = obfuscateApiKey(parsed.state.configs[provider].apiKey)
           }
         }
       }
       localStorage.setItem(name, JSON.stringify(parsed))
+      // Upgrade to OS-level encryption asynchronously
+      encryptApiKeysAsync(name)
     } catch {
       localStorage.setItem(name, value)
     }
@@ -183,29 +272,34 @@ export const useAIStore = create<AIState>()(
         })
       },
 
-      // Placeholder: Full AI send logic will be added in Phase 6
       sendMessage: async (content, projectId) => {
-        const { activeProviders } = get()
+        const { activeProviders, configs, tripleMode, currentConversationId } = get()
         if (activeProviders.length === 0) return
 
         const userMsg: AIMessage = {
           id: generateId(),
           role: 'user',
           content,
+          conversationId: currentConversationId || undefined,
           timestamp: nowUTC(),
         }
         set(s => ({ messages: [...s.messages, userMsg] }))
 
-        // TODO: Phase 6 - integrate with AI providers, tool calling, storyteller engine
-        const provider = activeProviders[0]
-        const placeholderMsg: AIMessage = {
-          id: generateId(),
-          role: 'assistant',
-          content: '[AI 통합은 Phase 6에서 구현됩니다]',
-          provider,
-          timestamp: nowUTC(),
+        // Persist user message
+        if (currentConversationId) {
+          await getAdapter().insertMessage({ ...userMsg, conversationId: currentConversationId })
         }
-        set(s => ({ messages: [...s.messages, placeholderMsg] }))
+
+        // Triple mode: send to all active providers in parallel
+        if (tripleMode && activeProviders.length > 1) {
+          const promises = activeProviders.map(p => sendToProvider(p, configs[p], get, set, projectId, currentConversationId))
+          await Promise.allSettled(promises)
+          return
+        }
+
+        // Single provider mode
+        const provider = activeProviders[0]
+        await sendToProvider(provider, configs[provider], get, set, projectId, currentConversationId)
       },
 
       clearMessages: () => set({
@@ -296,8 +390,192 @@ export const useAIStore = create<AIState>()(
           state.activeProviders = (['openai', 'anthropic', 'gemini', 'llama', 'grok'] as AIProvider[]).filter(
             p => state.configs[p]?.enabled && (state.configs[p]?.apiKey || state.configs[p]?.baseUrl)
           )
+
+          // Async decrypt safeStorage keys (sets state once complete)
+          decryptApiKeysAsync('onion-flow-ai-config').then(decrypted => {
+            if (!decrypted) return
+            try {
+              const parsed = JSON.parse(decrypted)
+              if (parsed?.state?.configs) {
+                const configs = parsed.state.configs
+                const activeProviders = (['openai', 'anthropic', 'gemini', 'llama', 'grok'] as AIProvider[]).filter(
+                  p => configs[p]?.enabled && (configs[p]?.apiKey || configs[p]?.baseUrl)
+                )
+                useAIStore.setState({ configs, activeProviders })
+              }
+            } catch { /* ignore */ }
+          })
         }
       },
     }
   )
 )
+
+// ── Helper: Send message to a single AI provider ──
+
+const MAX_TOOL_ITERATIONS = 10
+
+type StoreGet = () => AIState
+type StoreSet = (fn: (s: AIState) => Partial<AIState>) => void
+
+async function sendToProvider(
+  provider: AIProvider,
+  config: AIConfig,
+  get: StoreGet,
+  set: StoreSet,
+  projectId?: string,
+  conversationId?: string | null,
+) {
+  set(s => ({ isLoading: { ...s.isLoading, [provider]: true } }))
+
+  try {
+    // Build system prompt with project context
+    const systemPrompt = projectId ? buildChatSystemPrompt(projectId) : '당신은 소설 집필을 돕는 AI 어시스턴트입니다.'
+
+    // Build API messages from conversation history
+    const apiMessages: { role: string; content: string | unknown[] | null; [key: string]: unknown }[] = [
+      { role: 'system', content: systemPrompt },
+    ]
+
+    for (const msg of get().messages) {
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        const apiMsg: Record<string, unknown> = { role: msg.role, content: msg.content }
+        // Include tool calls in assistant messages for OpenAI/Llama/Grok format
+        if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+          if (provider === 'openai' || provider === 'llama' || provider === 'grok') {
+            apiMsg.tool_calls = msg.toolCalls.map(tc => ({
+              id: tc.id,
+              type: 'function',
+              function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+            }))
+          }
+        }
+        apiMessages.push(apiMsg as typeof apiMessages[0])
+      } else if (msg.role === 'tool' && msg.toolResults) {
+        // Rebuild tool result messages
+        const results = msg.toolResults.map(tr => ({ toolCallId: tr.toolCallId, result: tr.result }))
+        const toolMsgs = buildToolResultMessages(provider, [], results)
+        apiMessages.push(...toolMsgs)
+      }
+    }
+
+    // Call AI provider
+    let response: ProviderResponse = await callWithTools(config, apiMessages, true)
+    let iterations = 0
+
+    // Tool call loop
+    while (response.stopReason === 'tool_use' && response.toolCalls.length > 0 && iterations < MAX_TOOL_ITERATIONS) {
+      iterations++
+
+      // Add assistant message with tool calls
+      const assistantToolMsg: AIMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: response.content || '',
+        provider,
+        toolCalls: response.toolCalls,
+        conversationId: conversationId || undefined,
+        timestamp: nowUTC(),
+      }
+      set(s => ({ messages: [...s.messages, assistantToolMsg] }))
+      if (conversationId) {
+        await getAdapter().insertMessage({ ...assistantToolMsg, conversationId })
+      }
+
+      // Execute each tool call
+      const toolResults: AIToolResult[] = []
+      for (const tc of response.toolCalls) {
+        const result = await executeTool(tc.name, tc.arguments, projectId || '')
+        toolResults.push({ toolCallId: tc.id, success: result.success, result: result.result })
+      }
+
+      // Add tool result message
+      const toolResultMsg: AIMessage = {
+        id: generateId(),
+        role: 'tool',
+        content: toolResults.map(r => `[${r.success ? '✓' : '✗'}] ${r.result}`).join('\n'),
+        toolResults,
+        conversationId: conversationId || undefined,
+        timestamp: nowUTC(),
+      }
+      set(s => ({ messages: [...s.messages, toolResultMsg] }))
+      if (conversationId) {
+        await getAdapter().insertMessage({ ...toolResultMsg, conversationId })
+      }
+
+      // Build follow-up API messages with tool results
+      const resultData = toolResults.map(r => ({ toolCallId: r.toolCallId, result: r.result }))
+
+      // For OpenAI/Llama/Grok: include assistant message with tool_calls
+      if (provider === 'openai' || provider === 'llama' || provider === 'grok') {
+        apiMessages.push({
+          role: 'assistant',
+          content: response.content || null,
+          tool_calls: response.toolCalls.map(tc => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+          })),
+        })
+      } else if (provider === 'anthropic') {
+        // For Anthropic: include assistant content blocks
+        apiMessages.push({
+          role: 'assistant',
+          content: [
+            ...(response.content ? [{ type: 'text', text: response.content }] : []),
+            ...response.toolCalls.map(tc => ({
+              type: 'tool_use',
+              id: tc.id,
+              name: tc.name,
+              input: tc.arguments,
+            })),
+          ],
+        })
+      } else {
+        apiMessages.push({ role: 'assistant', content: response.content || '' })
+      }
+
+      const toolResultApiMsgs = buildToolResultMessages(provider, response.toolCalls, resultData)
+      apiMessages.push(...toolResultApiMsgs)
+
+      // Follow-up call
+      response = await callWithTools(config, apiMessages, true)
+    }
+
+    // Final assistant message
+    const finalMsg: AIMessage = {
+      id: generateId(),
+      role: 'assistant',
+      content: response.content || '(응답 없음)',
+      provider,
+      conversationId: conversationId || undefined,
+      timestamp: nowUTC(),
+    }
+    set(s => {
+      const newMessages = [...s.messages, finalMsg]
+      const tripleUpdate = s.tripleMode
+        ? { tripleMessages: { ...s.tripleMessages, [provider]: [...(s.tripleMessages[provider] || []), finalMsg] } }
+        : {}
+      return { messages: newMessages, ...tripleUpdate }
+    })
+    if (conversationId) {
+      await getAdapter().insertMessage({ ...finalMsg, conversationId })
+    }
+  } catch (err: unknown) {
+    const errorContent = err instanceof Error ? err.message : String(err)
+    const errorMsg: AIMessage = {
+      id: generateId(),
+      role: 'assistant',
+      content: `⚠️ 오류: ${errorContent}`,
+      provider,
+      conversationId: conversationId || undefined,
+      timestamp: nowUTC(),
+    }
+    set(s => ({ messages: [...s.messages, errorMsg] }))
+    if (conversationId) {
+      await getAdapter().insertMessage({ ...errorMsg, conversationId })
+    }
+  } finally {
+    set(s => ({ isLoading: { ...s.isLoading, [provider]: false } }))
+  }
+}

@@ -237,6 +237,7 @@ describe('executeTool', () => {
       referenceData: 'none' as const,
       relations: 'none' as const,
       emotions: 'none' as const,
+      wiki: 'none' as const,
     }
 
     const result = await executeTool('update_character', {}, 'proj-1', noneScope)
