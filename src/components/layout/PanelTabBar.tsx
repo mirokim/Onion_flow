@@ -93,7 +93,7 @@ export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canCl
                 'group relative flex items-center gap-1 h-full cursor-pointer select-none text-xs transition-colors shrink-0 max-w-[160px]',
                 pinned ? 'px-2' : 'px-3',
                 tab.id === activeTabId
-                  ? 'bg-bg-primary text-text-primary border-b-2 border-accent'
+                  ? 'text-text-primary border-b-2 border-accent'
                   : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
                 dragOverId === tab.id && 'bg-accent/10',
               )}
