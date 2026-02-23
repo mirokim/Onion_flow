@@ -7,6 +7,7 @@ import Underline from '@tiptap/extension-underline'
 import TextAlign from '@tiptap/extension-text-align'
 import Highlight from '@tiptap/extension-highlight'
 import { useProjectStore } from '@/stores/projectStore'
+import { useSaveStatusStore } from '@/stores/saveStatusStore'
 import { useTranslation } from 'react-i18next'
 import { BubbleToolbar } from './BubbleToolbar'
 import { calculateWordCount } from '@/lib/utils'
@@ -44,13 +45,16 @@ export function BlockEditor() {
     onUpdate: ({ editor }) => {
       if (!currentChapter) return
 
+      useSaveStatusStore.getState().setModified()
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
-      saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = setTimeout(async () => {
+        useSaveStatusStore.getState().setSaving()
         const content = editor.getJSON()
         const text = editor.getText()
         const stats = calculateWordCount(text)
-        updateChapterContent(currentChapter.id, content)
-        updateChapter(currentChapter.id, { wordCount: stats.charactersNoSpaces })
+        await updateChapterContent(currentChapter.id, content)
+        await updateChapter(currentChapter.id, { wordCount: stats.charactersNoSpaces })
+        useSaveStatusStore.getState().setSaved()
       }, AUTO_SAVE_DELAY)
     },
   })

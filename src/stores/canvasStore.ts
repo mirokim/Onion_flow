@@ -136,6 +136,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   selectNode: (id) => set({ selectedNodeId: id }),
 
   connectNodes: async (projectId, sourceNodeId, targetNodeId, sourceHandle, targetHandle) => {
+    // Prevent duplicate connections
+    const existing = get().wires.find(w =>
+      w.sourceNodeId === sourceNodeId &&
+      w.targetNodeId === targetNodeId &&
+      w.sourceHandle === sourceHandle &&
+      w.targetHandle === targetHandle
+    )
+    if (existing) return existing
+
     const parentCanvasId = get().getCurrentParentCanvasId()
     const wire: CanvasWire = {
       id: generateId(),
@@ -146,8 +155,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       sourceHandle,
       targetHandle,
     }
-    await getAdapter().insertCanvasWire(wire)
+    // Optimistic update: add to store immediately so wire renders right away
     set(s => ({ wires: [...s.wires, wire] }))
+    try {
+      await getAdapter().insertCanvasWire(wire)
+    } catch (err) {
+      // Rollback on DB error
+      console.error('[canvasStore] Failed to persist wire:', err)
+      set(s => ({ wires: s.wires.filter(w => w.id !== wire.id) }))
+    }
     return wire
   },
 

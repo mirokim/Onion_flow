@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getAdapter } from '@/db/storageAdapter'
-import type { WikiEntry, WikiCategory, EntityType } from '@/types'
+import type { WikiEntry, WikiCategory, WikiFilterCategory, EntityType } from '@/types'
+import { CATEGORY_GROUP_MAP } from '@/components/wiki/WikiCategoryList'
 import { generateId } from '@/lib/utils'
 import { nowUTC } from '@/lib/dateUtils'
 import { createEntity, withUpdatedAt, mapUpdate } from '@/lib/storeHelpers'
@@ -9,7 +10,7 @@ interface WikiState {
   entries: WikiEntry[]
   selectedEntryId: string | null
   searchQuery: string
-  filterCategory: WikiCategory | 'all'
+  filterCategory: WikiFilterCategory
   loading: boolean
 
   // CRUD
@@ -25,7 +26,7 @@ interface WikiState {
 
   // Search & filter
   setSearchQuery: (query: string) => void
-  setFilterCategory: (category: WikiCategory | 'all') => void
+  setFilterCategory: (category: WikiFilterCategory) => void
   getFilteredEntries: () => WikiEntry[]
 }
 
@@ -114,7 +115,13 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     const { entries, searchQuery, filterCategory } = get()
     let filtered = entries
     if (filterCategory !== 'all') {
-      filtered = filtered.filter(e => e.category === filterCategory)
+      const groupCategories = CATEGORY_GROUP_MAP[filterCategory]
+      if (groupCategories) {
+        const groupSet = new Set(groupCategories)
+        filtered = filtered.filter(e => groupSet.has(e.category))
+      } else {
+        filtered = filtered.filter(e => e.category === filterCategory)
+      }
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()

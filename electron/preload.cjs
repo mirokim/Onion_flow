@@ -24,4 +24,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('file:writeProjectFile', folderPath, filename, content),
   readProjectFile: (folderPath, filename) =>
     ipcRenderer.invoke('file:readProjectFile', folderPath, filename),
+
+  // Safe storage — OS-level encryption for API keys
+  safeStorageAvailable: () => ipcRenderer.invoke('safe:isAvailable'),
+  safeEncrypt: (plainText) => ipcRenderer.invoke('safe:encrypt', plainText),
+  safeDecrypt: (base64) => ipcRenderer.invoke('safe:decrypt', base64),
 })

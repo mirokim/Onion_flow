@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ArrowLeft, Trash2, Tag } from 'lucide-react'
 import { useWikiStore } from '@/stores/wikiStore'
+import { useSaveStatusStore } from '@/stores/saveStatusStore'
 import type { WikiEntry } from '@/types'
+import type { PanelDragHandlers } from '@/components/layout/PanelTabBar'
 import { WIKI_CATEGORIES } from './WikiCategoryList'
+import { cn } from '@/lib/utils'
 
 interface WikiEntryEditorProps {
   entry: WikiEntry
   onBack: () => void
+  panelDragHandlers?: PanelDragHandlers
 }
 
 function AutoTextarea({ value, onChange, placeholder, className }: {
@@ -36,22 +40,27 @@ function AutoTextarea({ value, onChange, placeholder, className }: {
   )
 }
 
-export function WikiEntryEditor({ entry, onBack }: WikiEntryEditorProps) {
+export function WikiEntryEditor({ entry, onBack, panelDragHandlers }: WikiEntryEditorProps) {
   const { updateEntry, deleteEntry } = useWikiStore()
   const [title, setTitle] = useState(entry.title)
   const [content, setContent] = useState(entry.content)
   const [tagInput, setTagInput] = useState('')
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const titleManuallySetRef = useRef(!!entry.title)
 
   useEffect(() => {
     setTitle(entry.title)
     setContent(entry.content)
+    titleManuallySetRef.current = !!entry.title
   }, [entry.id])
 
   const debouncedSave = useCallback((updates: Partial<WikiEntry>) => {
+    useSaveStatusStore.getState().setModified()
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
-      updateEntry(entry.id, updates)
+    saveTimerRef.current = setTimeout(async () => {
+      useSaveStatusStore.getState().setSaving()
+      await updateEntry(entry.id, updates)
+      useSaveStatusStore.getState().setSaved()
     }, 400)
   }, [entry.id, updateEntry])
 
@@ -63,11 +72,21 @@ export function WikiEntryEditor({ entry, onBack }: WikiEntryEditorProps) {
 
   const handleTitleChange = (v: string) => {
     setTitle(v)
+    titleManuallySetRef.current = v.trim().length > 0
     debouncedSave({ title: v })
   }
 
   const handleContentChange = (v: string) => {
     setContent(v)
+    // Auto-generate title from first line if title was not manually set
+    if (!titleManuallySetRef.current) {
+      const firstLine = v.split('\n')[0].trim().slice(0, 100)
+      if (firstLine) {
+        setTitle(firstLine)
+        debouncedSave({ content: v, title: firstLine })
+        return
+      }
+    }
     debouncedSave({ content: v })
   }
 
@@ -93,7 +112,15 @@ export function WikiEntryEditor({ entry, onBack }: WikiEntryEditorProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border">
+      <div
+        className={cn(
+          "flex items-center gap-1 px-2 py-1.5 border-b border-border",
+          panelDragHandlers && "cursor-grab active:cursor-grabbing",
+        )}
+        draggable={!!panelDragHandlers}
+        onDragStart={(e) => panelDragHandlers?.onDragStart(e)}
+        onDragEnd={() => panelDragHandlers?.onDragEnd()}
+      >
         <button
           onClick={onBack}
           className="p-1 rounded hover:bg-bg-hover text-text-secondary"

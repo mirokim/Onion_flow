@@ -99,6 +99,7 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       name,
       aliases: [],
       role: 'supporting',
+      position: 'neutral',
       personality: '',
       abilities: '',
       appearance: '',

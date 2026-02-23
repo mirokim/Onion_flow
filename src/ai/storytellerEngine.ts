@@ -10,7 +10,7 @@
  * 6. Return generated text
  */
 import { useCanvasStore } from '@/stores/canvasStore'
-import { useWorldStore } from '@/stores/worldStore'
+import { useWikiStore } from '@/stores/wikiStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useAIStore } from '@/stores/aiStore'
 import { callWithTools, type ProviderResponse } from './providers'
@@ -25,37 +25,50 @@ interface PromptSegment {
 
 /**
  * Process a canvas node into a prompt segment.
+ * Wiki-linked nodes (character, personality, appearance, memory, event) fetch content from wiki store.
  */
 function processNode(node: CanvasNode): PromptSegment | null {
-  const worldStore = useWorldStore.getState()
+  const wikiEntries = useWikiStore.getState().entries
+
+  // Helper: lookup wiki entry with warning on missing
+  const findWikiEntry = (nodeType: string) => {
+    const wikiEntryId = node.data.wikiEntryId
+    if (!wikiEntryId) {
+      console.warn(`[StorytellerEngine] ${nodeType} 노드(${node.id})에 위키 항목이 선택되지 않았습니다.`)
+      return null
+    }
+    const entry = wikiEntries.find(e => e.id === wikiEntryId)
+    if (!entry) {
+      console.warn(`[StorytellerEngine] ${nodeType} 노드(${node.id})의 위키 항목(${wikiEntryId})을 찾을 수 없습니다. (총 ${wikiEntries.length}개 로드됨)`)
+    }
+    return entry ?? null
+  }
 
   switch (node.type) {
     case 'character': {
-      const charId = node.data.characterId as string | undefined
-      if (!charId) return null
-      const char = worldStore.characters.find(c => c.id === charId)
-      if (!char) return null
+      const entry = findWikiEntry('character')
+      if (!entry) return null
       return {
         role: 'character_context',
-        content: `[캐릭터: ${char.name}]\n역할: ${char.role}\n성격: ${char.personality}\n말투: ${char.speechPattern}\n배경: ${char.background}\n동기: ${char.motivation}`,
+        content: `[캐릭터: ${entry.title}]\n${entry.content}`,
         priority: 10,
       }
     }
     case 'event': {
-      const desc = node.data.description as string || ''
-      const setting = node.data.setting as string || ''
+      const entry = findWikiEntry('event')
+      if (!entry) return null
       return {
         role: 'event_context',
-        content: `[사건/환경]\n${desc}${setting ? `\n배경: ${setting}` : ''}`,
+        content: `[사건/환경]\n${entry.content}`,
         priority: 9,
       }
     }
     case 'wiki': {
-      const wikiId = node.data.wikiEntryId as string | undefined
-      if (!wikiId) return null
+      const entry = findWikiEntry('wiki')
+      if (!entry) return null
       return {
         role: 'wiki_context',
-        content: `[위키 데이터: ${node.data.title || wikiId}]\n${node.data.content || ''}`,
+        content: `[위키 데이터: ${entry.title}]\n${entry.content}`,
         priority: 8,
       }
     }
@@ -86,29 +99,29 @@ function processNode(node: CanvasNode): PromptSegment | null {
       }
     }
     case 'personality': {
-      const text = node.data.text as string || ''
-      if (!text) return null
+      const entry = findWikiEntry('personality')
+      if (!entry) return null
       return {
         role: 'character_context',
-        content: `[성격 설정]\n${text}`,
+        content: `[성격 설정]\n${entry.content}`,
         priority: 10,
       }
     }
     case 'appearance': {
-      const text = node.data.text as string || ''
-      if (!text) return null
+      const entry = findWikiEntry('appearance')
+      if (!entry) return null
       return {
         role: 'character_context',
-        content: `[외모 설정]\n${text}`,
+        content: `[외모 설정]\n${entry.content}`,
         priority: 10,
       }
     }
     case 'memory': {
-      const text = node.data.text as string || ''
-      if (!text) return null
+      const entry = findWikiEntry('memory')
+      if (!entry) return null
       return {
         role: 'character_context',
-        content: `[기억/배경]\n${text}`,
+        content: `[기억/배경]\n${entry.content}`,
         priority: 10,
       }
     }

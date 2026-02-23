@@ -30,4 +30,5 @@ export const NODE_CATEGORY_COLORS: Record<CanvasNodeCategory, string> = {
   detector: '#909399',
   structure: '#8b5cf6',
   output: '#e040fb',
+  plot: '#e91e63',
 }

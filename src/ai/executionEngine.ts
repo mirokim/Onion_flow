@@ -12,6 +12,7 @@
  * Their data is collected by upstream traversal when executable nodes run.
  */
 import { useCanvasStore, type NodeOutput } from '@/stores/canvasStore'
+import { useWikiStore } from '@/stores/wikiStore'
 import { useAIStore } from '@/stores/aiStore'
 import { runStoryteller, buildStorytellerPrompt } from './storytellerEngine'
 import { processWhatIf } from './nodeProcessors/whatIfProcessor'
@@ -115,22 +116,66 @@ function collectUpstreamContext(nodeId: string): string {
 }
 
 /**
+ * Collect character names from upstream character nodes (for tagging).
+ */
+function collectUpstreamCharacterNames(nodeId: string): string[] {
+  const { nodes, wires } = useCanvasStore.getState()
+  const wikiEntries = useWikiStore.getState().entries
+  const visited = new Set<string>()
+  const names: string[] = []
+
+  const traverse = (id: string) => {
+    if (visited.has(id)) return
+    visited.add(id)
+    const incoming = wires.filter(w => w.targetNodeId === id)
+    for (const wire of incoming) {
+      const sourceNode = nodes.find(n => n.id === wire.sourceNodeId)
+      if (!sourceNode) continue
+      if (sourceNode.type === 'character' && sourceNode.data.wikiEntryId) {
+        const entry = wikiEntries.find(e => e.id === sourceNode.data.wikiEntryId)
+        if (entry?.title) names.push(entry.title)
+      }
+      traverse(sourceNode.id)
+    }
+  }
+
+  traverse(nodeId)
+  return names
+}
+
+/**
  * Extract displayable text from a context/direction node's data.
+ * Wiki-linked nodes (character, personality, appearance, memory, event) fetch content from wiki store.
  */
 function extractNodeDataText(node: CanvasNode): string | null {
+  const wikiEntries = useWikiStore.getState().entries
+
+  // Helper: lookup wiki entry with warning on missing
+  const findWikiEntry = (nodeType: string) => {
+    const wikiEntryId = node.data.wikiEntryId
+    if (!wikiEntryId) {
+      console.warn(`[ExecutionEngine] ${nodeType} 노드(${node.id})에 위키 항목이 선택되지 않았습니다.`)
+      return null
+    }
+    const entry = wikiEntries.find(e => e.id === wikiEntryId)
+    if (!entry) {
+      console.warn(`[ExecutionEngine] ${nodeType} 노드(${node.id})의 위키 항목(${wikiEntryId})을 찾을 수 없습니다. (총 ${wikiEntries.length}개 로드됨)`)
+    }
+    return entry ?? null
+  }
+
   switch (node.type) {
     case 'character': {
-      const label = node.data.label || node.data.characterId || ''
-      return `[캐릭터] ${label}`
+      const entry = findWikiEntry('character')
+      return entry ? `[캐릭터: ${entry.title}] ${entry.content}` : null
     }
     case 'event': {
-      const desc = node.data.description || ''
-      return desc ? `[사건] ${desc}` : null
+      const entry = findWikiEntry('event')
+      return entry ? `[사건] ${entry.content}` : null
     }
     case 'wiki': {
-      const title = node.data.title || ''
-      const content = node.data.content || ''
-      return title || content ? `[위키: ${title}] ${content}` : null
+      const entry = findWikiEntry('wiki')
+      return entry ? `[위키: ${entry.title}] ${entry.content}` : null
     }
     case 'pov': {
       const perspective = node.data.perspective || '3인칭'
@@ -145,19 +190,26 @@ function extractNodeDataText(node: CanvasNode): string | null {
       return style ? `[문체] ${style.slice(0, 100)}...` : null
     }
     case 'personality': {
-      const text = node.data.text || ''
-      return text ? `[성격] ${text}` : null
+      const entry = findWikiEntry('personality')
+      return entry ? `[성격] ${entry.content}` : null
     }
     case 'appearance': {
-      const text = node.data.text || ''
-      return text ? `[외모] ${text}` : null
+      const entry = findWikiEntry('appearance')
+      return entry ? `[외모] ${entry.content}` : null
     }
     case 'memory': {
-      const text = node.data.text || ''
-      return text ? `[기억] ${text}` : null
+      const entry = findWikiEntry('memory')
+      return entry ? `[기억] ${entry.content}` : null
     }
-    default:
+    default: {
+      // Handle plot nodes dynamically
+      if (node.type.startsWith('plot_')) {
+        const plotName = node.data.label || node.type
+        const desc = node.data.description || ''
+        return `[플롯: ${plotName}] ${desc}`
+      }
       return null
+    }
   }
 }
 
@@ -224,19 +276,21 @@ async function executeNode(node: CanvasNode): Promise<string> {
 
     case 'save_story': {
       if (!context) return '저장할 스토리 내용이 없습니다.'
-      const filename = (node.data.filename as string) || 'story.md'
-      const api = (window as any).electronAPI
-      if (!api) {
-        return `[웹 모드] 파일 저장 불가. 내용 미리보기:\n\n${context.slice(0, 500)}...`
-      }
-      const { useProjectStore } = await import('@/stores/projectStore')
-      const project = useProjectStore.getState().currentProject
-      if (!project || !(project as any).folderPath) {
-        return '프로젝트 폴더가 설정되지 않았습니다. 프로젝트 설정에서 폴더를 지정해주세요.'
-      }
-      const folderPath = (project as any).folderPath as string
-      await api.writeProjectFile(folderPath, filename, context)
-      return `"${filename}" 파일이 저장되었습니다. (${context.length}자)`
+      const { nodes } = useCanvasStore.getState()
+      const projectId = node.projectId || nodes[0]?.projectId
+      if (!projectId) return '프로젝트 ID를 찾을 수 없습니다.'
+
+      // Collect character names from upstream for tags
+      const characterTags = collectUpstreamCharacterNames(node.id)
+      const dateTag = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+      const title = `Story - ${new Date().toLocaleString('ko-KR')}`
+      const tags = [dateTag, ...characterTags]
+
+      const wikiStore = useWikiStore.getState()
+      const entry = await wikiStore.createEntry(projectId, 'story', title)
+      await wikiStore.updateEntry(entry.id, { content: context, tags })
+
+      return `위키에 "${title}" 저장 완료 (${context.length}자, 태그: ${tags.join(', ')})\n\n---\n\n${context}`
     }
 
     case 'emotion_tracker':

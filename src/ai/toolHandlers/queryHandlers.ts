@@ -1,5 +1,6 @@
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorldStore } from '@/stores/worldStore'
+import { useWikiStore } from '@/stores/wikiStore'
 import { useVersionStore } from '@/stores/versionStore'
 import { tipTapToText } from '../contentConverter'
 import { getAdapter } from '@/db/storageAdapter'
@@ -49,6 +50,21 @@ export async function handleGetCurrentState(params: Record<string, any>): Promis
       markChapterQueried(entityId)
       const text = tipTapToText(ch.content)
       return { success: true, result: text || '(빈 챕터)' }
+    }
+    case 'wiki_entries': {
+      const wikiEntries = useWikiStore.getState().entries
+      if (entityId) {
+        const entry = wikiEntries.find(e => e.id === entityId)
+        return { success: true, result: entry ? JSON.stringify(entry, null, 2) : '위키 항목을 찾을 수 없습니다.' }
+      }
+      return {
+        success: true,
+        result: JSON.stringify(wikiEntries.map(e => ({
+          id: e.id, category: e.category, title: e.title,
+          content: e.content.length > 200 ? e.content.slice(0, 200) + '...' : e.content,
+          tags: e.tags,
+        })), null, 2),
+      }
     }
     default:
       return { success: false, result: `알 수 없는 데이터 타입: ${dataType}` }

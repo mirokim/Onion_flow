@@ -3,17 +3,30 @@
  * Looks up the node definition from the registry and renders handles/header dynamically.
  * Shows execution output (ComfyUI-style) when available.
  */
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { getNodeDefinition } from '../index'
 import { useCanvasStore, type NodeOutput } from '@/stores/canvasStore'
+import { useWikiStore } from '@/stores/wikiStore'
 import { cn } from '@/lib/utils'
+import type { WikiCategory } from '@/types'
+import type { WikiEntry } from '@/types'
 
 interface BaseNodeData {
   label?: string
   nodeType: string
   nodeId?: string
   [key: string]: any
+}
+
+/** Map node types to their wiki category for wiki-linked nodes */
+const WIKI_CATEGORY_MAP: Record<string, WikiCategory | 'all'> = {
+  character: 'character',
+  personality: 'character_personality',
+  appearance: 'character_appearance',
+  memory: 'character_memory',
+  event: 'event',
+  wiki: 'all',
 }
 
 function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData }) {
@@ -28,10 +41,26 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
     data.nodeId ? s.nodeOutputs[data.nodeId] : undefined,
   )
 
+  // Wiki entry selector for wiki-linked nodes
+  const wikiCategory = WIKI_CATEGORY_MAP[data.nodeType]
+  const allWikiEntries = useWikiStore(s => s.entries)
+  const wikiEntries = useMemo(
+    () => {
+      if (!wikiCategory) return [] as WikiEntry[]
+      if (wikiCategory === 'all') return allWikiEntries
+      return allWikiEntries.filter(e => e.category === wikiCategory)
+    },
+    [allWikiEntries, wikiCategory],
+  )
+  const selectedWikiEntry = useMemo(
+    () => data.wikiEntryId ? allWikiEntries.find(e => e.id === data.wikiEntryId) : undefined,
+    [allWikiEntries, data.wikiEntryId],
+  )
+
   return (
     <div
       className={cn(
-        'canvas-node rounded-lg shadow-md border-2 min-w-[160px] max-w-[280px]',
+        'canvas-node relative overflow-visible rounded-lg shadow-md border-2 min-w-[160px] max-w-[280px]',
         'bg-bg-surface text-text-primary',
         selected ? 'border-accent shadow-accent/20' : 'border-border',
         nodeOutput?.status === 'running' && 'border-yellow-500/60',
@@ -65,6 +94,75 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
         <span className="text-text-muted/60 uppercase tracking-wider text-[10px]">
           {def.category}
         </span>
+
+        {/* Wiki-linked nodes: entry selector + read-only content */}
+        {wikiCategory && (
+          <div className="mt-1.5">
+            <select
+              value={data.wikiEntryId || ''}
+              onChange={(e) => {
+                e.stopPropagation()
+                const value = e.target.value || null
+                if (data.nodeId) {
+                  useCanvasStore.getState().updateNodeData(data.nodeId, { wikiEntryId: value })
+                }
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="">위키 항목 선택...</option>
+              {wikiEntries.map(entry => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.title || 'Untitled'}
+                </option>
+              ))}
+            </select>
+            {selectedWikiEntry?.content && (
+              <p className="mt-1 text-[10px] text-text-muted leading-relaxed bg-bg-primary/50 rounded px-1.5 py-1 max-h-[60px] overflow-y-auto">
+                {selectedWikiEntry.content.length > 100
+                  ? selectedWikiEntry.content.slice(0, 100) + '...'
+                  : selectedWikiEntry.content}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Character: Position dropdown (kept alongside wiki selector) */}
+        {data.nodeType === 'character' && (
+          <div className="mt-1.5">
+            <select
+              value={data.position || 'neutral'}
+              onChange={(e) => {
+                e.stopPropagation()
+                if (data.nodeId) {
+                  useCanvasStore.getState().updateNodeData(data.nodeId, { position: e.target.value })
+                }
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+            >
+              <option value="neutral">중립</option>
+              <option value="rival">라이벌</option>
+              <option value="villain">악역</option>
+              <option value="friend">친구</option>
+              <option value="mentor">멘토</option>
+              <option value="sidekick">조수/파트너</option>
+              <option value="love_interest">연인</option>
+              <option value="family">가족</option>
+              <option value="subordinate">부하</option>
+              <option value="custom">기타</option>
+            </select>
+          </div>
+        )}
+
+        {/* Plot: Description display */}
+        {data.nodeType?.startsWith('plot_') && data.description && (
+          <div className="mt-1.5">
+            <p className="text-[10px] text-text-muted leading-relaxed">{data.description}</p>
+          </div>
+        )}
 
         {/* Storyteller: Provider dropdown */}
         {data.nodeType === 'storyteller' && (
@@ -132,7 +230,7 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
           type="target"
           position={Position.Left}
           id={input.id}
-          className="!w-2.5 !h-2.5 !bg-text-muted !border-2 !border-bg-surface"
+          className="!w-3 !h-3 !bg-text-muted !border-2 !border-bg-surface hover:!bg-accent hover:!scale-150 !transition-all !duration-150"
           style={{ top: `${((i + 1) / (inputs.length + 1)) * 100}%` }}
         />
       ))}
@@ -144,7 +242,7 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
           type="source"
           position={Position.Right}
           id={output.id}
-          className="!w-2.5 !h-2.5 !bg-accent !border-2 !border-bg-surface"
+          className="!w-3 !h-3 !bg-accent !border-2 !border-bg-surface hover:!scale-150 !transition-all !duration-150"
           style={{ top: `${((i + 1) / (outputs.length + 1)) * 100}%` }}
         />
       ))}

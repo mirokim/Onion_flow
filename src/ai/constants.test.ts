@@ -335,6 +335,7 @@ describe('checkAIAccess', () => {
     referenceData: 'full',
     relations: 'full',
     emotions: 'full',
+    wiki: 'full',
   }
 
   const readOnlyScope: AIAccessScope = {
@@ -346,6 +347,7 @@ describe('checkAIAccess', () => {
     referenceData: 'read_only',
     relations: 'read_only',
     emotions: 'read_only',
+    wiki: 'read_only',
   }
 
   const noneScope: AIAccessScope = {
@@ -357,6 +359,7 @@ describe('checkAIAccess', () => {
     referenceData: 'none',
     relations: 'none',
     emotions: 'none',
+    wiki: 'none',
   }
 
   describe('full scope allows all tools', () => {

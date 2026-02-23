@@ -1,6 +1,11 @@
 /**
  * SQLite-based StorageAdapter using sql.js (WASM).
  * Persists the database to IndexedDB automatically — no user permission required.
+ *
+ * Heavy logic has been extracted to domain modules under ./adapter/:
+ *   - schema.ts: DDL & migrations
+ *   - rowMappers.ts: DB row → TypeScript type conversions
+ *   - persistence.ts: IndexedDB load/save helpers
  */
 import type { Database, SqlJsStatic } from 'sql.js'
 
@@ -28,79 +33,24 @@ async function loadSqlJs(): Promise<SqlJsStatic> {
 import type {
   Project, Chapter, Character, CharacterRelation,
   WorldSetting, Foreshadow, Item, ReferenceData,
-  EntityVersion, AIConversation, AIMessage, AIProvider, OnionNode,
+  EntityVersion, AIConversation, AIMessage, OnionNode,
   CanvasNode, CanvasWire, WikiEntry, EmotionLog, StorySummary, DailyStats, TimelineSnapshot,
 } from '@/types'
 import type { StorageAdapter } from './storageAdapter'
 import { sanitizeRecord } from './backup'
 import { nowUTC } from '@/lib/dateUtils'
 
-// ── IndexedDB helpers for SQLite database persistence ──
-
-const SQLITE_DB_NAME = 'OnionSQLiteStore'
-const SQLITE_STORE = 'databases'
-const SQLITE_KEY = 'onion-main-db'
-
-async function loadDatabaseFromIDB(): Promise<Uint8Array | null> {
-  return new Promise((resolve) => {
-    try {
-      const req = indexedDB.open(SQLITE_DB_NAME, 1)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(SQLITE_STORE)) {
-          db.createObjectStore(SQLITE_STORE)
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        const tx = db.transaction(SQLITE_STORE, 'readonly')
-        const store = tx.objectStore(SQLITE_STORE)
-        const getReq = store.get(SQLITE_KEY)
-        getReq.onsuccess = () => resolve(getReq.result || null)
-        getReq.onerror = () => resolve(null)
-      }
-      req.onerror = () => resolve(null)
-    } catch { resolve(null) }
-  })
-}
-
-async function saveDatabaseToIDB(data: Uint8Array, key: string = SQLITE_KEY): Promise<void> {
-  return new Promise((resolve, reject) => {
-    try {
-      const req = indexedDB.open(SQLITE_DB_NAME, 1)
-      req.onupgradeneeded = () => {
-        const db = req.result
-        if (!db.objectStoreNames.contains(SQLITE_STORE)) {
-          db.createObjectStore(SQLITE_STORE)
-        }
-      }
-      req.onsuccess = () => {
-        const db = req.result
-        const tx = db.transaction(SQLITE_STORE, 'readwrite')
-        tx.objectStore(SQLITE_STORE).put(data, key)
-        tx.oncomplete = () => resolve()
-        tx.onerror = () => reject(new Error('IndexedDB transaction failed'))
-      }
-      req.onerror = () => reject(new Error('Failed to open IndexedDB'))
-    } catch (err) { reject(err) }
-  })
-}
-
-async function deleteFromIDB(key: string): Promise<void> {
-  return new Promise((resolve) => {
-    try {
-      const req = indexedDB.open(SQLITE_DB_NAME, 1)
-      req.onsuccess = () => {
-        const db = req.result
-        const tx = db.transaction(SQLITE_STORE, 'readwrite')
-        tx.objectStore(SQLITE_STORE).delete(key)
-        tx.oncomplete = () => resolve()
-        tx.onerror = () => resolve()
-      }
-      req.onerror = () => resolve()
-    } catch { resolve() }
-  })
-}
+// ── Extracted modules ──
+import { createTables } from './adapter/schema'
+import {
+  ts, parseJsonArray,
+  rowToProject, rowToChapter, rowToCharacter, rowToRelation,
+  rowToWorldSetting, rowToItem, rowToReferenceData, rowToForeshadow,
+  rowToEntityVersion, rowToConversation, rowToMessage, rowToOnionNode,
+} from './adapter/rowMappers'
+import {
+  loadDatabaseFromIDB, saveDatabaseToIDB, deleteFromIDB, getAutoBackupKeys,
+} from './adapter/persistence'
 
 // ── SQLiteStorageAdapter ──
 
@@ -108,7 +58,9 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   private db: Database | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private dirty = false
-  private DEBOUNCE_MS = 500
+  // IndexedDB is now a backup-only store; primary persistence is folder-based (3 files).
+  // Reduced from 500ms to 10s since IndexedDB writes are supplementary snapshots.
+  private DEBOUNCE_MS = 10_000
   private initialized = false
   /** File path for Electron file-based persistence (null = use IndexedDB fallback) */
   private _filePath: string | null = null
@@ -164,7 +116,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       console.log('[SQLite] Created new database')
     }
 
-    this._createTables()
+    createTables(this.db)
     await this._persist()
 
     this.startAutoBackup()
@@ -188,7 +140,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this._filePath = filePath
     this.initialized = true
 
-    this._createTables()
+    createTables(this.db)
     console.log('[SQLite] Loaded database from file:', filePath)
 
     this.startAutoBackup()
@@ -204,7 +156,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this._filePath = filePath
     this.initialized = true
 
-    this._createTables()
+    createTables(this.db)
     await this._persist()
     console.log('[SQLite] Created new database at file:', filePath)
 
@@ -224,7 +176,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this._fileHandle = handle
     this.initialized = true
 
-    this._createTables()
+    createTables(this.db)
     console.log('[SQLite] Loaded database from web file handle:', handle.name)
 
     this.startAutoBackup()
@@ -240,7 +192,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this._fileHandle = handle
     this.initialized = true
 
-    this._createTables()
+    createTables(this.db)
     await this._persist()
     console.log('[SQLite] Created new database with web file handle:', handle.name)
 
@@ -258,382 +210,6 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this._fileHandle = null
     this.initialized = false
     this.dirty = false
-  }
-
-  private _createTables() {
-    if (!this.db) return
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL DEFAULT '',
-        description TEXT NOT NULL DEFAULT '',
-        genre TEXT NOT NULL DEFAULT '',
-        synopsis TEXT NOT NULL DEFAULT '',
-        settings TEXT NOT NULL DEFAULT '{}',
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0
-      )
-    `)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS chapters (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        title TEXT NOT NULL DEFAULT '',
-        "order" INTEGER NOT NULL DEFAULT 0,
-        parent_id TEXT,
-        type TEXT NOT NULL DEFAULT 'chapter',
-        content TEXT,
-        synopsis TEXT NOT NULL DEFAULT '',
-        word_count INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_chapters_project ON chapters(project_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS characters (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        name TEXT NOT NULL DEFAULT '',
-        aliases TEXT NOT NULL DEFAULT '[]',
-        role TEXT NOT NULL DEFAULT 'supporting',
-        personality TEXT NOT NULL DEFAULT '',
-        abilities TEXT NOT NULL DEFAULT '',
-        appearance TEXT NOT NULL DEFAULT '',
-        background TEXT NOT NULL DEFAULT '',
-        motivation TEXT NOT NULL DEFAULT '',
-        speech_pattern TEXT NOT NULL DEFAULT '',
-        image_url TEXT NOT NULL DEFAULT '',
-        tags TEXT NOT NULL DEFAULT '[]',
-        notes TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_characters_project ON characters(project_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS character_relations (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        source_id TEXT NOT NULL,
-        target_id TEXT NOT NULL,
-        relation_type TEXT NOT NULL DEFAULT '',
-        description TEXT NOT NULL DEFAULT '',
-        is_bidirectional INTEGER NOT NULL DEFAULT 1,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_relations_project ON character_relations(project_id)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_relations_source ON character_relations(source_id)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_relations_target ON character_relations(target_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS world_settings (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        category TEXT NOT NULL DEFAULT '',
-        title TEXT NOT NULL DEFAULT '',
-        content TEXT NOT NULL DEFAULT '',
-        tags TEXT NOT NULL DEFAULT '[]',
-        "order" INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_world_settings_project ON world_settings(project_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS items (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        name TEXT NOT NULL DEFAULT '',
-        item_type TEXT NOT NULL DEFAULT 'other',
-        rarity TEXT NOT NULL DEFAULT 'common',
-        effect TEXT NOT NULL DEFAULT '',
-        description TEXT NOT NULL DEFAULT '',
-        owner TEXT NOT NULL DEFAULT '',
-        tags TEXT NOT NULL DEFAULT '[]',
-        notes TEXT NOT NULL DEFAULT '',
-        "order" INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_items_project ON items(project_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS reference_data (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        category TEXT NOT NULL DEFAULT 'reference',
-        title TEXT NOT NULL DEFAULT '',
-        content TEXT NOT NULL DEFAULT '',
-        source_url TEXT NOT NULL DEFAULT '',
-        attachments TEXT NOT NULL DEFAULT '[]',
-        tags TEXT NOT NULL DEFAULT '[]',
-        use_as_context INTEGER NOT NULL DEFAULT 1,
-        notes TEXT NOT NULL DEFAULT '',
-        "order" INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_reference_data_project ON reference_data(project_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS foreshadows (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        title TEXT NOT NULL DEFAULT '',
-        description TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'planted',
-        planted_chapter_id TEXT,
-        resolved_chapter_id TEXT,
-        importance TEXT NOT NULL DEFAULT 'medium',
-        tags TEXT NOT NULL DEFAULT '[]',
-        notes TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_foreshadows_project ON foreshadows(project_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS entity_versions (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        entity_type TEXT NOT NULL,
-        entity_id TEXT NOT NULL,
-        version_number INTEGER NOT NULL DEFAULT 0,
-        data TEXT NOT NULL DEFAULT '{}',
-        label TEXT NOT NULL DEFAULT '',
-        created_by TEXT NOT NULL DEFAULT 'user',
-        created_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_entity_versions_project ON entity_versions(project_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS ai_conversations (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        title TEXT NOT NULL DEFAULT '',
-        messages TEXT NOT NULL DEFAULT '[]',
-        created_at INTEGER NOT NULL DEFAULT 0,
-        used_providers TEXT NOT NULL DEFAULT '[]',
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_ai_conversations_project ON ai_conversations(project_id)`)
-
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS ai_messages (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'user',
-        content TEXT NOT NULL DEFAULT '',
-        provider TEXT,
-        tool_calls TEXT,
-        tool_results TEXT,
-        attachments TEXT,
-        timestamp INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(conversation_id)`)
-
-    // Onion nodes (separate from chapter content)
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS onion_nodes (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        chapter_id TEXT NOT NULL,
-        parent_id TEXT,
-        title TEXT NOT NULL DEFAULT '',
-        content TEXT NOT NULL DEFAULT '',
-        "order" INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-        FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_onion_nodes_project ON onion_nodes(project_id)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_onion_nodes_chapter ON onion_nodes(chapter_id)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_onion_nodes_parent ON onion_nodes(parent_id)`)
-
-    // ── Onion Flow: Canvas Nodes ──
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS canvas_nodes (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        parent_canvas_id TEXT,
-        type TEXT NOT NULL DEFAULT 'storyteller',
-        position_x REAL NOT NULL DEFAULT 0,
-        position_y REAL NOT NULL DEFAULT 0,
-        data TEXT NOT NULL DEFAULT '{}',
-        width REAL,
-        height REAL,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_canvas_nodes_project ON canvas_nodes(project_id)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_canvas_nodes_parent ON canvas_nodes(parent_canvas_id)`)
-
-    // ── Onion Flow: Canvas Wires ──
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS canvas_wires (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        parent_canvas_id TEXT,
-        source_node_id TEXT NOT NULL,
-        target_node_id TEXT NOT NULL,
-        source_handle TEXT NOT NULL DEFAULT 'output',
-        target_handle TEXT NOT NULL DEFAULT 'input',
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_canvas_wires_project ON canvas_wires(project_id)`)
-
-    // ── Onion Flow: Wiki Entries ──
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS wiki_entries (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        category TEXT NOT NULL DEFAULT 'other',
-        title TEXT NOT NULL DEFAULT '',
-        content TEXT NOT NULL DEFAULT '',
-        tags TEXT NOT NULL DEFAULT '[]',
-        linked_entity_id TEXT,
-        linked_entity_type TEXT,
-        "order" INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT 0,
-        updated_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_wiki_entries_project ON wiki_entries(project_id)`)
-
-    // ── Onion Flow: Emotion Logs ──
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS emotion_logs (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        character_id TEXT NOT NULL,
-        chapter_id TEXT NOT NULL,
-        emotion TEXT NOT NULL DEFAULT '',
-        intensity INTEGER NOT NULL DEFAULT 0,
-        timestamp INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_emotion_logs_project ON emotion_logs(project_id)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_emotion_logs_character ON emotion_logs(character_id)`)
-
-    // ── Onion Flow: Story Summaries ──
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS story_summaries (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        chapter_id TEXT NOT NULL,
-        summary TEXT NOT NULL DEFAULT '',
-        active_hooks TEXT NOT NULL DEFAULT '[]',
-        created_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_story_summaries_project ON story_summaries(project_id)`)
-
-    // ── Onion Flow: Daily Stats ──
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS daily_stats (
-        date TEXT NOT NULL,
-        project_id TEXT NOT NULL,
-        words_written INTEGER NOT NULL DEFAULT 0,
-        time_spent_min INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (date, project_id),
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_daily_stats_project ON daily_stats(project_id)`)
-
-    // ── Onion Flow: Timeline Snapshots ──
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS timeline_snapshots (
-        id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
-        label TEXT NOT NULL DEFAULT '',
-        canvas_data TEXT NOT NULL DEFAULT '{}',
-        manuscript_data TEXT NOT NULL DEFAULT '[]',
-        wiki_data TEXT NOT NULL DEFAULT '[]',
-        world_data TEXT NOT NULL DEFAULT '{}',
-        created_at INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-      )
-    `)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_timeline_snapshots_project ON timeline_snapshots(project_id)`)
-
-    // Foreign key enforcement (WAL mode removed: not needed in WASM)
-    this.db.run(`PRAGMA foreign_keys=ON`)
-
-    // ── Schema migration ──
-    this._runMigrations()
-  }
-
-  private _runMigrations(): void {
-    if (!this.db) return
-
-    // Create migration tracking table
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS _migrations (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        applied_at INTEGER NOT NULL DEFAULT 0
-      )
-    `)
-
-    const applied = new Set(
-      this._queryAll<{ name: string }>('SELECT name FROM _migrations').map(r => r.name)
-    )
-
-    const migrations: Array<{ name: string; sql: string[] }> = [
-      // Future migrations go here, e.g.:
-      // {
-      //   name: '001_add_sync_fields',
-      //   sql: [
-      //     'ALTER TABLE projects ADD COLUMN sync_status TEXT DEFAULT "local_only"',
-      //     'ALTER TABLE projects ADD COLUMN server_version INTEGER DEFAULT 0',
-      //   ],
-      // },
-    ]
-
-    for (const migration of migrations) {
-      if (applied.has(migration.name)) continue
-      try {
-        for (const sql of migration.sql) {
-          this.db.run(sql)
-        }
-        this._run(
-          'INSERT INTO _migrations (name, applied_at) VALUES (?, ?)',
-          [migration.name, nowUTC()]
-        )
-      } catch (err) {
-        console.error(`[SQLite] Migration '${migration.name}' failed:`, err)
-      }
-    }
   }
 
   // ── Persistence ──
@@ -780,7 +356,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       // Replace current database
       if (this.db) this.db.close()
       this.db = newDb
-      this._createTables() // Ensure any missing tables are added
+      createTables(this.db) // Ensure any missing tables are added
       await this._persist()
       return true
     } catch (err) {
@@ -789,7 +365,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  // ── Row helpers ──
+  // ── Query helpers ──
 
   private _queryAll<T>(sql: string, params: any[] = []): T[] {
     if (!this.db) return []
@@ -839,209 +415,15 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  // ── Row mapping: DB row → TypeScript object ──
-
-  /** Extract common timestamp fields from a DB row. */
-  private _ts(r: any): { createdAt: number; updatedAt: number } {
-    return { createdAt: r.created_at, updatedAt: r.updated_at }
-  }
-
-  private _rowToProject(r: any): Project {
-    return {
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      genre: r.genre,
-      synopsis: r.synopsis,
-      settings: JSON.parse(r.settings || '{}'),
-      ...this._ts(r),
-    }
-  }
-
-  private _rowToChapter(r: any): Chapter {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      title: r.title,
-      order: r.order,
-      parentId: r.parent_id || null,
-      type: r.type,
-      content: r.content ? JSON.parse(r.content) : null,
-      synopsis: r.synopsis,
-      wordCount: r.word_count,
-      ...this._ts(r),
-    }
-  }
-
-  /** Safely parse a JSON-encoded array column, always returning an array */
-  private _parseJsonArray<T = any>(raw: unknown, fallback: T[] = []): T[] {
-    if (Array.isArray(raw)) return raw
-    if (typeof raw !== 'string' || !raw) return fallback
-    try {
-      const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed : fallback
-    } catch {
-      // Fallback: for string[] columns, treat as comma-separated string
-      return raw.split(',').map(s => s.trim()).filter(Boolean) as unknown as T[]
-    }
-  }
-
-  private _rowToCharacter(r: any): Character {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      name: r.name,
-      aliases: this._parseJsonArray<string>(r.aliases),
-      role: r.role,
-      personality: r.personality,
-      abilities: r.abilities,
-      appearance: r.appearance,
-      background: r.background,
-      motivation: r.motivation,
-      speechPattern: r.speech_pattern,
-      imageUrl: r.image_url,
-      tags: this._parseJsonArray<string>(r.tags),
-      notes: r.notes,
-      ...this._ts(r),
-    }
-  }
-
-  private _rowToRelation(r: any): CharacterRelation {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      sourceId: r.source_id,
-      targetId: r.target_id,
-      relationType: r.relation_type,
-      description: r.description,
-      isBidirectional: !!r.is_bidirectional,
-    }
-  }
-
-  private _rowToWorldSetting(r: any): WorldSetting {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      category: r.category,
-      title: r.title,
-      content: r.content,
-      tags: this._parseJsonArray<string>(r.tags),
-      order: r.order,
-      ...this._ts(r),
-    }
-  }
-
-  private _rowToItem(r: any): Item {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      name: r.name,
-      itemType: r.item_type,
-      rarity: r.rarity,
-      effect: r.effect,
-      description: r.description,
-      owner: r.owner,
-      tags: this._parseJsonArray<string>(r.tags),
-      notes: r.notes,
-      order: r.order,
-      ...this._ts(r),
-    }
-  }
-
-  private _rowToReferenceData(r: any): ReferenceData {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      category: r.category,
-      title: r.title,
-      content: r.content,
-      sourceUrl: r.source_url,
-      attachments: this._parseJsonArray(r.attachments),
-      tags: this._parseJsonArray<string>(r.tags),
-      useAsContext: !!r.use_as_context,
-      notes: r.notes,
-      order: r.order,
-      ...this._ts(r),
-    }
-  }
-
-  private _rowToForeshadow(r: any): Foreshadow {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      title: r.title,
-      description: r.description,
-      status: r.status,
-      plantedChapterId: r.planted_chapter_id || null,
-      resolvedChapterId: r.resolved_chapter_id || null,
-      importance: r.importance,
-      tags: this._parseJsonArray<string>(r.tags),
-      notes: r.notes,
-      ...this._ts(r),
-    }
-  }
-
-  private _rowToEntityVersion(r: any): EntityVersion {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      entityType: r.entity_type,
-      entityId: r.entity_id,
-      versionNumber: r.version_number,
-      data: JSON.parse(r.data || '{}'),
-      label: r.label,
-      createdBy: r.created_by,
-      createdAt: r.created_at,
-    }
-  }
-
-  private _rowToConversation(r: any): AIConversation {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      title: r.title,
-      messages: this._parseJsonArray(r.messages),
-      createdAt: r.created_at,
-      usedProviders: this._parseJsonArray<AIProvider>(r.used_providers),
-    }
-  }
-
-  private _rowToMessage(r: any): AIMessage & { conversationId: string } {
-    return {
-      id: r.id,
-      conversationId: r.conversation_id,
-      role: r.role,
-      content: r.content,
-      provider: r.provider || undefined,
-      toolCalls: r.tool_calls ? this._parseJsonArray(r.tool_calls) : undefined,
-      toolResults: r.tool_results ? this._parseJsonArray(r.tool_results) : undefined,
-      attachments: r.attachments ? this._parseJsonArray(r.attachments) : undefined,
-      timestamp: r.timestamp,
-    }
-  }
-
-  private _rowToOnionNode(r: any): OnionNode {
-    return {
-      id: r.id,
-      projectId: r.project_id,
-      chapterId: r.chapter_id,
-      parentId: r.parent_id || null,
-      title: r.title,
-      content: r.content,
-      order: r.order,
-      ...this._ts(r),
-    }
-  }
-
   // ── StorageAdapter: Projects ──
 
   async fetchProjects(): Promise<Project[]> {
-    return this._queryAll('SELECT * FROM projects ORDER BY updated_at DESC').map(r => this._rowToProject(r))
+    return this._queryAll('SELECT * FROM projects ORDER BY updated_at DESC').map(r => rowToProject(r))
   }
 
   async fetchProject(id: string): Promise<Project | null> {
     const r = this._queryOne('SELECT * FROM projects WHERE id = ?', [id])
-    return r ? this._rowToProject(r) : null
+    return r ? rowToProject(r) : null
   }
 
   async insertProject(project: Project): Promise<void> {
@@ -1079,12 +461,12 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchChapters(projectId: string): Promise<Chapter[]> {
     return this._queryAll('SELECT * FROM chapters WHERE project_id = ? ORDER BY "order"', [projectId])
-      .map(r => this._rowToChapter(r))
+      .map(r => rowToChapter(r))
   }
 
   async fetchChapter(id: string): Promise<Chapter | null> {
     const r = this._queryOne('SELECT * FROM chapters WHERE id = ?', [id])
-    return r ? this._rowToChapter(r) : null
+    return r ? rowToChapter(r) : null
   }
 
   async insertChapter(chapter: Chapter): Promise<void> {
@@ -1119,22 +501,22 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchCharacters(projectId: string): Promise<Character[]> {
     return this._queryAll('SELECT * FROM characters WHERE project_id = ?', [projectId])
-      .map(r => this._rowToCharacter(r))
+      .map(r => rowToCharacter(r))
   }
 
   async insertCharacter(character: Character): Promise<void> {
     this._run(
-      `INSERT OR REPLACE INTO characters (id, project_id, name, aliases, role, personality, abilities, appearance, background, motivation, speech_pattern, image_url, tags, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO characters (id, project_id, name, aliases, role, position, personality, abilities, appearance, background, motivation, speech_pattern, image_url, tags, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [character.id, character.projectId, character.name, JSON.stringify(character.aliases),
-       character.role, character.personality, character.abilities, character.appearance,
+       character.role, character.position || 'neutral', character.personality, character.abilities, character.appearance,
        character.background, character.motivation, character.speechPattern, character.imageUrl,
        JSON.stringify(character.tags), character.notes, character.createdAt, character.updatedAt]
     )
   }
 
   async updateCharacter(id: string, updates: Partial<Character>): Promise<void> {
-    const existing = await this.fetchCharacter(id)
+    const existing = await this._fetchCharacter(id)
     if (!existing) return
     const merged = { ...existing, ...updates }
     await this.insertCharacter(merged)
@@ -1144,16 +526,16 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this._run('DELETE FROM characters WHERE id = ?', [id])
   }
 
-  private async fetchCharacter(id: string): Promise<Character | null> {
+  private async _fetchCharacter(id: string): Promise<Character | null> {
     const r = this._queryOne('SELECT * FROM characters WHERE id = ?', [id])
-    return r ? this._rowToCharacter(r) : null
+    return r ? rowToCharacter(r) : null
   }
 
   // ── StorageAdapter: Relations ──
 
   async fetchRelations(projectId: string): Promise<CharacterRelation[]> {
     return this._queryAll('SELECT * FROM character_relations WHERE project_id = ?', [projectId])
-      .map(r => this._rowToRelation(r))
+      .map(r => rowToRelation(r))
   }
 
   async insertRelation(relation: CharacterRelation): Promise<void> {
@@ -1168,7 +550,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   async updateRelation(id: string, updates: Partial<CharacterRelation>): Promise<void> {
     const r = this._queryOne('SELECT * FROM character_relations WHERE id = ?', [id])
     if (!r) return
-    const existing = this._rowToRelation(r)
+    const existing = rowToRelation(r)
     const merged = { ...existing, ...updates }
     await this.insertRelation(merged)
   }
@@ -1242,7 +624,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchWorldSettings(projectId: string): Promise<WorldSetting[]> {
     return this._queryAll('SELECT * FROM world_settings WHERE project_id = ? ORDER BY "order"', [projectId])
-      .map(r => this._rowToWorldSetting(r))
+      .map(r => rowToWorldSetting(r))
   }
 
   async insertWorldSetting(ws: WorldSetting): Promise<void> {
@@ -1257,7 +639,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   async updateWorldSetting(id: string, updates: Partial<WorldSetting>): Promise<void> {
     const r = this._queryOne('SELECT * FROM world_settings WHERE id = ?', [id])
     if (!r) return
-    const existing = this._rowToWorldSetting(r)
+    const existing = rowToWorldSetting(r)
     const merged = { ...existing, ...updates }
     await this.insertWorldSetting(merged)
   }
@@ -1270,7 +652,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchItems(projectId: string): Promise<Item[]> {
     return this._queryAll('SELECT * FROM items WHERE project_id = ? ORDER BY "order"', [projectId])
-      .map(r => this._rowToItem(r))
+      .map(r => rowToItem(r))
   }
 
   async insertItem(item: Item): Promise<void> {
@@ -1286,7 +668,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   async updateItem(id: string, updates: Partial<Item>): Promise<void> {
     const r = this._queryOne('SELECT * FROM items WHERE id = ?', [id])
     if (!r) return
-    const existing = this._rowToItem(r)
+    const existing = rowToItem(r)
     const merged = { ...existing, ...updates }
     await this.insertItem(merged)
   }
@@ -1299,7 +681,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchReferenceData(projectId: string): Promise<ReferenceData[]> {
     return this._queryAll('SELECT * FROM reference_data WHERE project_id = ? ORDER BY "order"', [projectId])
-      .map(r => this._rowToReferenceData(r))
+      .map(r => rowToReferenceData(r))
   }
 
   async insertReferenceData(ref: ReferenceData): Promise<void> {
@@ -1315,7 +697,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   async updateReferenceData(id: string, updates: Partial<ReferenceData>): Promise<void> {
     const r = this._queryOne('SELECT * FROM reference_data WHERE id = ?', [id])
     if (!r) return
-    const existing = this._rowToReferenceData(r)
+    const existing = rowToReferenceData(r)
     const merged = { ...existing, ...updates }
     await this.insertReferenceData(merged)
   }
@@ -1328,7 +710,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchForeshadows(projectId: string): Promise<Foreshadow[]> {
     return this._queryAll('SELECT * FROM foreshadows WHERE project_id = ?', [projectId])
-      .map(r => this._rowToForeshadow(r))
+      .map(r => rowToForeshadow(r))
   }
 
   async insertForeshadow(fs: Foreshadow): Promise<void> {
@@ -1344,7 +726,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   async updateForeshadow(id: string, updates: Partial<Foreshadow>): Promise<void> {
     const r = this._queryOne('SELECT * FROM foreshadows WHERE id = ?', [id])
     if (!r) return
-    const existing = this._rowToForeshadow(r)
+    const existing = rowToForeshadow(r)
     const merged = { ...existing, ...updates }
     await this.insertForeshadow(merged)
   }
@@ -1361,7 +743,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     if (entityType) { sql += ' AND entity_type = ?'; params.push(entityType) }
     if (entityId) { sql += ' AND entity_id = ?'; params.push(entityId) }
     sql += ' ORDER BY version_number DESC'
-    return this._queryAll(sql, params).map(r => this._rowToEntityVersion(r))
+    return this._queryAll(sql, params).map(r => rowToEntityVersion(r))
   }
 
   async insertVersion(version: EntityVersion): Promise<void> {
@@ -1394,7 +776,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchConversations(projectId: string): Promise<AIConversation[]> {
     return this._queryAll('SELECT * FROM ai_conversations WHERE project_id = ? ORDER BY created_at DESC', [projectId])
-      .map(r => this._rowToConversation(r))
+      .map(r => rowToConversation(r))
   }
 
   async insertConversation(conv: AIConversation): Promise<void> {
@@ -1409,7 +791,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   async updateConversation(id: string, updates: Partial<AIConversation>): Promise<void> {
     const r = this._queryOne('SELECT * FROM ai_conversations WHERE id = ?', [id])
     if (!r) return
-    const existing = this._rowToConversation(r)
+    const existing = rowToConversation(r)
     const merged = { ...existing, ...updates }
     await this.insertConversation(merged)
   }
@@ -1428,7 +810,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchMessages(conversationId: string): Promise<AIMessage[]> {
     return this._queryAll('SELECT * FROM ai_messages WHERE conversation_id = ? ORDER BY timestamp', [conversationId])
-      .map(r => this._rowToMessage(r))
+      .map(r => rowToMessage(r))
   }
 
   async insertMessage(msg: AIMessage & { conversationId: string }): Promise<void> {
@@ -1447,12 +829,12 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async fetchOnionNodes(projectId: string): Promise<OnionNode[]> {
     return this._queryAll('SELECT * FROM onion_nodes WHERE project_id = ? ORDER BY "order"', [projectId])
-      .map(r => this._rowToOnionNode(r))
+      .map(r => rowToOnionNode(r))
   }
 
   async fetchOnionNodesByChapter(chapterId: string): Promise<OnionNode[]> {
     return this._queryAll('SELECT * FROM onion_nodes WHERE chapter_id = ? ORDER BY "order"', [chapterId])
-      .map(r => this._rowToOnionNode(r))
+      .map(r => rowToOnionNode(r))
   }
 
   async insertOnionNode(node: OnionNode): Promise<void> {
@@ -1467,7 +849,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   async updateOnionNode(id: string, updates: Partial<OnionNode>): Promise<void> {
     const rows = this._queryAll('SELECT * FROM onion_nodes WHERE id = ?', [id])
     if (rows.length === 0) return
-    const existing = this._rowToOnionNode(rows[0])
+    const existing = rowToOnionNode(rows[0])
     const merged = { ...existing, ...updates, updatedAt: nowUTC() }
     await this.insertOnionNode(merged)
   }
@@ -1543,7 +925,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   private async _pruneAutoBackups(): Promise<void> {
     try {
-      const keys = await this._getAutoBackupKeys()
+      const keys = await getAutoBackupKeys()
       if (keys.length > 3) {
         const toDelete = keys.slice(0, keys.length - 3)
         for (const key of toDelete) {
@@ -1577,7 +959,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       data: JSON.parse(r.data || '{}'),
       width: r.width || undefined,
       height: r.height || undefined,
-      ...this._ts(r),
+      ...ts(r),
     }))
   }
 
@@ -1677,11 +1059,11 @@ export class SQLiteStorageAdapter implements StorageAdapter {
         category: r.category,
         title: r.title,
         content: r.content,
-        tags: this._parseJsonArray<string>(r.tags),
+        tags: parseJsonArray<string>(r.tags),
         linkedEntityId: r.linked_entity_id || undefined,
         linkedEntityType: r.linked_entity_type || undefined,
         order: r.order,
-        ...this._ts(r),
+        ...ts(r),
       }))
   }
 
@@ -1702,10 +1084,10 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     const existing: WikiEntry = {
       id: r.id, projectId: r.project_id, category: r.category,
       title: r.title, content: r.content,
-      tags: this._parseJsonArray<string>(r.tags),
+      tags: parseJsonArray<string>(r.tags),
       linkedEntityId: r.linked_entity_id || undefined,
       linkedEntityType: r.linked_entity_type || undefined,
-      order: r.order, ...this._ts(r),
+      order: r.order, ...ts(r),
     }
     await this.insertWikiEntry({ ...existing, ...updates, updatedAt: nowUTC() })
   }
@@ -1761,7 +1143,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
         projectId: r.project_id,
         chapterId: r.chapter_id,
         summary: r.summary,
-        activeHooks: this._parseJsonArray<string>(r.active_hooks),
+        activeHooks: parseJsonArray<string>(r.active_hooks),
         createdAt: r.created_at,
       }))
   }
@@ -1833,27 +1215,5 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async deleteTimelineSnapshotsByProject(projectId: string): Promise<void> {
     this._run('DELETE FROM timeline_snapshots WHERE project_id = ?', [projectId])
-  }
-
-  private _getAutoBackupKeys(): Promise<string[]> {
-    return new Promise((resolve) => {
-      try {
-        const req = indexedDB.open(SQLITE_DB_NAME, 1)
-        req.onsuccess = () => {
-          const db = req.result
-          const tx = db.transaction(SQLITE_STORE, 'readonly')
-          const store = tx.objectStore(SQLITE_STORE)
-          const getAllKeys = store.getAllKeys()
-          getAllKeys.onsuccess = () => {
-            const keys = (getAllKeys.result as string[])
-              .filter(k => typeof k === 'string' && k.startsWith('onion-autobackup-'))
-              .sort()
-            resolve(keys)
-          }
-          getAllKeys.onerror = () => resolve([])
-        }
-        req.onerror = () => resolve([])
-      } catch { resolve([]) }
-    })
   }
 }

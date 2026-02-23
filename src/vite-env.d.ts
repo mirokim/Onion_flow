@@ -26,6 +26,11 @@ declare global {
     listFolder: (folderPath: string) => Promise<{ success: boolean; data?: FolderEntry[]; error?: string }>
     writeProjectFile: (folderPath: string, filename: string, content: string) => Promise<{ success: boolean; error?: string }>
     readProjectFile: (folderPath: string, filename: string) => Promise<{ success: boolean; data?: string; error?: string }>
+
+    // Safe storage — OS-level encryption for API keys
+    safeStorageAvailable: () => Promise<boolean>
+    safeEncrypt: (plainText: string) => Promise<string | null>
+    safeDecrypt: (base64: string) => Promise<string | null>
   }
 
   // Web File System Access API (Chrome/Edge)
