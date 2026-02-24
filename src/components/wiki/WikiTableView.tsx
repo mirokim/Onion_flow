@@ -102,18 +102,7 @@ export function WikiTableView({ entries, onSelect }: WikiTableViewProps) {
       <table className="w-full text-sm">
         <thead className="sticky top-0 bg-bg-secondary z-10">
           <tr className="border-b border-border">
-            <th className="text-left px-3 py-2">
-              <button
-                onClick={() => toggleSort('title')}
-                className="flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text-primary transition"
-              >
-                제목
-                {sortField === 'title' && (
-                  <ArrowUpDown className="w-3 h-3 text-accent" />
-                )}
-              </button>
-            </th>
-            <th className="text-left px-3 py-2 w-28">
+            <th className="text-left px-3 py-1 w-28">
               <button
                 onClick={() => toggleSort('category')}
                 className="flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text-primary transition"
@@ -124,13 +113,21 @@ export function WikiTableView({ entries, onSelect }: WikiTableViewProps) {
                 )}
               </button>
             </th>
-            <th className="text-left px-3 py-2 w-40 hidden xl:table-cell">
+            <th className="text-left px-3 py-1">
+              <button
+                onClick={() => toggleSort('title')}
+                className="flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text-primary transition"
+              >
+                제목
+                {sortField === 'title' && (
+                  <ArrowUpDown className="w-3 h-3 text-accent" />
+                )}
+              </button>
+            </th>
+            <th className="text-left px-3 py-1 w-40 hidden xl:table-cell">
               <span className="text-xs font-medium text-text-muted">태그</span>
             </th>
-            <th className="text-left px-3 py-2 hidden lg:table-cell">
-              <span className="text-xs font-medium text-text-muted">미리보기</span>
-            </th>
-            <th className="text-left px-3 py-2 w-20">
+            <th className="text-left px-3 py-1 w-20">
               <button
                 onClick={() => toggleSort('updatedAt')}
                 className="flex items-center gap-1 text-xs font-medium text-text-muted hover:text-text-primary transition"
@@ -203,7 +200,15 @@ function WikiTableRow({ entry, onSelect, onContextMenu, renamingId, onRenameComp
       onContextMenu={(e) => onContextMenu(e, entry.id)}
       className="border-b border-border/30 hover:bg-bg-hover cursor-pointer transition group"
     >
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-1">
+        <span className={cn(
+          'inline-block px-2 py-0.5 rounded-full text-[11px] font-medium',
+          getCategoryColor(entry.category),
+        )}>
+          {getCategoryLabel(entry.category)}
+        </span>
+      </td>
+      <td className="px-3 py-1">
         {isRenaming ? (
           <input
             ref={inputRef}
@@ -215,28 +220,20 @@ function WikiTableRow({ entry, onSelect, onContextMenu, renamingId, onRenameComp
               if (e.key === 'Escape') onRenameComplete()
             }}
             onClick={(e) => e.stopPropagation()}
-            className="text-sm font-medium bg-bg-hover border border-accent rounded px-1.5 py-0.5 focus:outline-none text-text-primary w-full"
+            className="text-xs bg-bg-hover border border-accent rounded px-1.5 py-0.5 focus:outline-none text-text-primary w-full"
           />
         ) : (
-          <span className="text-sm font-medium text-text-primary group-hover:text-accent transition truncate block">
+          <span className="text-xs text-text-primary group-hover:text-accent transition truncate block">
             {entry.title || 'Untitled'}
           </span>
         )}
       </td>
-      <td className="px-3 py-2.5">
-        <span className={cn(
-          'inline-block px-2 py-0.5 rounded-full text-[11px] font-medium',
-          getCategoryColor(entry.category),
-        )}>
-          {getCategoryLabel(entry.category)}
-        </span>
-      </td>
-      <td className="px-3 py-2.5 hidden xl:table-cell">
+      <td className="px-3 py-1 hidden xl:table-cell">
         <div className="flex gap-1 flex-wrap">
           {entry.tags.slice(0, 3).map(tag => (
             <span
               key={tag}
-              className="text-[11px] px-1.5 py-0.5 bg-accent/10 text-accent rounded"
+              className="text-[11px] px-1.5 py-0.5 bg-bg-hover text-text-muted rounded"
             >
               {tag}
             </span>
@@ -248,12 +245,7 @@ function WikiTableRow({ entry, onSelect, onContextMenu, renamingId, onRenameComp
           )}
         </div>
       </td>
-      <td className="px-3 py-2.5 hidden lg:table-cell">
-        <span className="text-xs text-text-muted truncate block max-w-[200px]">
-          {entry.content ? entry.content.slice(0, 120) : ''}
-        </span>
-      </td>
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-1">
         <span className="text-xs text-text-muted whitespace-nowrap">
           {formatRelativeTime(entry.updatedAt)}
         </span>

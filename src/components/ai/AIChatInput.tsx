@@ -108,7 +108,7 @@ export function AIChatInput({ onSend, isLoading, templates, onToggleDebate, deba
           onChange={e => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onInput={handleInput}
-          placeholder={t('ai.inputPlaceholder', '메시지를 입력하세요...')}
+          placeholder={debateActive ? '토론 주제를 입력하세요...' : t('ai.inputPlaceholder', '메시지를 입력하세요...')}
           rows={1}
           className="flex-1 resize-none bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent"
           disabled={isLoading}

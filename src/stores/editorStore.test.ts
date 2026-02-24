@@ -13,8 +13,11 @@ function resetStore() {
     uiScale: 'm',
     focusMode: false,
     openTabs: ['canvas', 'editor', 'wiki'],
-    canvasWidth: 480,
-    wikiWidth: 300,
+    panelGroups: [
+      { id: 'test-canvas', tabs: ['canvas'], activeTab: 'canvas', width: 480 },
+      { id: 'test-editor', tabs: ['editor'], activeTab: 'editor', width: 500 },
+      { id: 'test-wiki', tabs: ['wiki'], activeTab: 'wiki', width: 800 },
+    ],
     showLineNumbers: false,
     lineNumberOpacity: 0.4,
     emotionData: {},
@@ -37,8 +40,8 @@ describe('editorStore', () => {
       expect(state.uiScale).toBe('m')
       expect(state.focusMode).toBe(false)
       expect(state.openTabs).toEqual(['canvas', 'editor', 'wiki'])
-      expect(state.canvasWidth).toBe(480)
-      expect(state.wikiWidth).toBe(300)
+      expect(state.panelGroups[0].width).toBe(480)
+      expect(state.panelGroups[2].width).toBe(800)
       expect(state.showLineNumbers).toBe(false)
       expect(state.lineNumberOpacity).toBe(0.4)
       expect(state.emotionData).toEqual({})
@@ -136,14 +139,34 @@ describe('editorStore', () => {
   // ── Panel Widths ──
 
   describe('panel widths', () => {
-    it('should set canvas width', () => {
-      useEditorStore.getState().setCanvasWidth(600)
-      expect(useEditorStore.getState().canvasWidth).toBe(600)
+    it('should set width on a specific group', () => {
+      useEditorStore.getState().setGroupWidth('test-canvas', 600)
+      const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-canvas')
+      expect(group?.width).toBe(600)
     })
 
-    it('should set wiki width', () => {
-      useEditorStore.getState().setWikiWidth(450)
-      expect(useEditorStore.getState().wikiWidth).toBe(450)
+    it('should clamp width to minimum', () => {
+      useEditorStore.getState().setGroupWidth('test-canvas', 50)
+      const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-canvas')
+      expect(group?.width).toBe(200)
+    })
+
+    it('should clamp width to maximum', () => {
+      useEditorStore.getState().setGroupWidth('test-canvas', 2000)
+      const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-canvas')
+      expect(group?.width).toBe(1200)
+    })
+
+    it('should clamp wiki width to per-type maximum (1000)', () => {
+      useEditorStore.getState().setGroupWidth('test-wiki', 1200)
+      const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-wiki')
+      expect(group?.width).toBe(1000)
+    })
+
+    it('should clamp wiki width to per-type minimum (800)', () => {
+      useEditorStore.getState().setGroupWidth('test-wiki', 500)
+      const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-wiki')
+      expect(group?.width).toBe(800)
     })
   })
 

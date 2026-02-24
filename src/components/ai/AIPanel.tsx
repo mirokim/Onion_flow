@@ -5,13 +5,12 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, MessageSquare, ToggleLeft, ToggleRight, Edit3, Check } from 'lucide-react'
+import { Plus, Trash2, MessageSquare, ToggleLeft, ToggleRight, Edit3, Check, Settings } from 'lucide-react'
 import { useAIStore } from '@/stores/aiStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useDebateStore } from '@/stores/debateStore'
 import { AIChatMessage } from './AIChatMessage'
 import { AIChatInput } from './AIChatInput'
-import { DebateSetup } from './debate/DebateSetup'
 import { DebateThread } from './debate/DebateThread'
 import { DebateControlBar } from './debate/DebateControlBar'
 import { DebateUserInput } from './debate/DebateUserInput'
@@ -24,17 +23,17 @@ interface AIPanelProps {
   isGrouped?: boolean
 }
 
-type AITabMode = 'chat' | 'debate'
-
 export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
   const { t } = useTranslation()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showSidebar, setShowSidebar] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
-  const [activeAITab, setActiveAITab] = useState<AITabMode>('chat')
+  const [debateMode, setDebateMode] = useState(false)
 
   const debateStatus = useDebateStore((s) => s.status)
+  const debateSettings = useDebateStore((s) => s.settings)
+  const startDebate = useDebateStore((s) => s.startDebate)
 
   const {
     messages,
@@ -58,6 +57,7 @@ export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
   const toggleTab = useEditorStore(s => s.toggleTab)
   const pinnedPanels = useEditorStore(s => s.pinnedPanels)
   const togglePanelPin = useEditorStore(s => s.togglePanelPin)
+  const openSettings = useEditorStore(s => s.openSettings)
   const projectId = currentProject?.id
 
   // Load conversations when project changes
@@ -73,8 +73,25 @@ export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
   const anyLoading = Object.values(isLoading).some(Boolean)
 
   const handleSend = useCallback((content: string) => {
-    sendMessage(content, projectId)
-  }, [sendMessage, projectId])
+    if (debateMode && debateStatus === 'idle') {
+      // Start debate with the topic
+      const { mode, maxRounds, selectedProviders, roles, judgeProvider, useReference, referenceText, referenceFiles, pacingMode, autoDelay } = debateSettings
+      startDebate({
+        mode,
+        topic: content,
+        maxRounds,
+        participants: selectedProviders,
+        roles: (mode === 'roleAssignment' || mode === 'battle') ? roles : [],
+        judgeProvider: mode === 'battle' ? judgeProvider ?? undefined : undefined,
+        referenceText: useReference ? referenceText : '',
+        useReference,
+        referenceFiles: useReference ? referenceFiles : [],
+        pacing: { mode: pacingMode, autoDelaySeconds: autoDelay },
+      })
+    } else {
+      sendMessage(content, projectId)
+    }
+  }, [debateMode, debateStatus, debateSettings, startDebate, sendMessage, projectId])
 
   const handleNewConversation = async () => {
     if (!projectId) return
@@ -97,6 +114,9 @@ export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
     await deleteConversation(id)
   }
 
+  // Debate is running (not idle) — show debate UI
+  const debateRunning = debateMode && debateStatus !== 'idle'
+
   return (
     <div className="flex flex-col h-full">
       {/* Header — PanelTabBar (hidden when grouped) */}
@@ -110,7 +130,7 @@ export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
           panelDragHandlers={panelDragHandlers}
           panelType="ai"
           actions={
-            activeAITab === 'chat' ? (
+            !debateRunning ? (
               <>
                 {activeProviders.length === 0 && (
                   <span className="text-[10px] text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">
@@ -140,7 +160,7 @@ export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
               </>
             ) : (
               <button
-                onClick={() => setActiveAITab('chat')}
+                onClick={() => setDebateMode(false)}
                 className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition text-[10px]"
                 title="채팅으로 돌아가기"
               >
@@ -151,8 +171,14 @@ export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
         />
       )}
 
-      {/* ── Chat Tab ── */}
-      {activeAITab === 'chat' && (
+      {/* ── Debate running UI ── */}
+      {debateRunning ? (
+        <>
+          <DebateControlBar />
+          <DebateThread />
+          <DebateUserInput />
+        </>
+      ) : (
         <>
           {/* Conversation sidebar */}
           {showSidebar && (
@@ -249,28 +275,28 @@ export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Debate settings button (shown above input when debate mode is on) */}
+          {debateMode && debateStatus === 'idle' && (
+            <div className="px-2 pb-1">
+              <button
+                onClick={() => openSettings('debate')}
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition"
+              >
+                <Settings className="w-3.5 h-3.5" />
+                토론 설정
+              </button>
+            </div>
+          )}
+
           {/* Input */}
           <AIChatInput
             onSend={handleSend}
             isLoading={anyLoading}
             templates={promptTemplates}
-            onToggleDebate={() => setActiveAITab('debate')}
-            debateActive={false}
+            onToggleDebate={() => setDebateMode(!debateMode)}
+            debateActive={debateMode}
           />
         </>
-      )}
-
-      {/* ── Debate Tab ── */}
-      {activeAITab === 'debate' && (
-        debateStatus === 'idle' ? (
-          <DebateSetup onBack={() => setActiveAITab('chat')} />
-        ) : (
-          <>
-            <DebateControlBar />
-            <DebateThread />
-            <DebateUserInput />
-          </>
-        )
       )}
     </div>
   )

@@ -10,6 +10,12 @@ interface ResizeHandleProps {
 export function ResizeHandle({ side, onResize, className }: ResizeHandleProps) {
   const [isDragging, setIsDragging] = useState(false)
   const startXRef = useRef(0)
+  const onResizeRef = useRef(onResize)
+
+  // Keep the ref always up-to-date
+  useEffect(() => {
+    onResizeRef.current = onResize
+  })
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -23,7 +29,7 @@ export function ResizeHandle({ side, onResize, className }: ResizeHandleProps) {
     const handleMouseMove = (e: MouseEvent) => {
       const delta = e.clientX - startXRef.current
       startXRef.current = e.clientX
-      onResize(delta)
+      onResizeRef.current(delta)
     }
 
     const handleMouseUp = () => {
@@ -41,7 +47,7 @@ export function ResizeHandle({ side, onResize, className }: ResizeHandleProps) {
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [isDragging, onResize, side])
+  }, [isDragging])
 
   return (
     <div

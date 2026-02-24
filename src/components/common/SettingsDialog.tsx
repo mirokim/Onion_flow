@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   X, Eye, EyeOff, Sun, Moon, MonitorSmartphone, Globe, Info,
-  BarChart3, History, Download, Trash2, Settings, Cpu,
+  BarChart3, History, Download, Trash2, Settings, Cpu, Swords,
 } from 'lucide-react'
 import { useEditorStore, type Theme, type Language } from '@/stores/editorStore'
 import { useAIStore } from '@/stores/aiStore'
@@ -17,8 +17,9 @@ import { StatsContent } from '@/components/stats/StatsPopup'
 import { ExportContent } from '@/components/stats/ExportPopup'
 import { TimelineContent } from '@/components/version/TimelinePanel'
 import { TrashContent } from '@/components/common/TrashPanel'
+import { DebateSettingsContent } from '@/components/ai/debate/DebateSettingsContent'
 
-export type SettingsSection = 'stats' | 'timeline' | 'export' | 'trash' | 'general' | 'ai'
+export type SettingsSection = 'stats' | 'timeline' | 'export' | 'trash' | 'general' | 'ai' | 'debate'
 
 interface SettingsDialogProps {
   open: boolean
@@ -88,6 +89,7 @@ const TOOL_SECTIONS: SidebarItem[] = [
 const SETTINGS_SECTIONS: SidebarItem[] = [
   { id: 'general', labelKo: '일반', icon: Settings },
   { id: 'ai', labelKo: 'AI 설정', icon: Cpu },
+  { id: 'debate', labelKo: '토론', icon: Swords },
 ]
 
 export function SettingsDialog({ open, onClose, initialSection }: SettingsDialogProps) {
@@ -229,6 +231,8 @@ export function SettingsDialog({ open, onClose, initialSection }: SettingsDialog
                 </div>
               </div>
             )}
+
+            {activeSection === 'debate' && <DebateSettingsContent />}
 
             {activeSection === 'ai' && (
               <div className="space-y-4">

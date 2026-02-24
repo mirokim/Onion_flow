@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
-import { useEditorStore, type PanelTab, type PanelGroup } from '@/stores/editorStore'
+import { useEditorStore, type PanelTab, type PanelGroup, MIN_PANEL_WIDTH } from '@/stores/editorStore'
 import { useTranslation } from 'react-i18next'
 import type { PanelDragHandlers } from '@/components/layout/PanelTabBar'
 import { PanelGroupTabBar } from '@/components/layout/PanelGroupTabBar'
@@ -19,10 +19,6 @@ import { ProjectDialog } from '@/components/common/ProjectDialog'
 import { SettingsDialog, type SettingsSection } from '@/components/common/SettingsDialog'
 import { cn } from '@/lib/utils'
 
-const MIN_LEFT_WIDTH = 200
-const MAX_LEFT_WIDTH = 1200
-const MIN_RIGHT_WIDTH = 160
-const MAX_RIGHT_WIDTH = 800
 const MIN_OPENFILES_WIDTH = 120
 const MAX_OPENFILES_WIDTH = 400
 
@@ -56,11 +52,8 @@ export function AppShell() {
     focusMode,
     showOpenFilesPanel,
     panelGroups,
-    canvasWidth,
-    wikiWidth,
     openFilesWidth,
-    setCanvasWidth,
-    setWikiWidth,
+    setGroupWidth,
     setOpenFilesWidth,
     setActiveGroupTab,
     moveTabToGroup,
@@ -71,19 +64,16 @@ export function AppShell() {
   } = useEditorStore()
 
   const [showProjectDialog, setShowProjectDialog] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
+  const showSettings = useEditorStore(s => s.settingsOpen)
+  const settingsSection = useEditorStore(s => s.settingsSection) as SettingsSection
+  const openSettings = useEditorStore(s => s.openSettings)
+  const closeSettings = useEditorStore(s => s.closeSettings)
 
   // Group drag-to-reorder state
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null)
   const [dragOverMerge, setDragOverMerge] = useState(false) // true = merge, false = reorder
   const dragGroupRef = useRef<string | null>(null) // group being dragged
   const dragTabRef = useRef<PanelTab | null>(null) // individual tab being dragged (for cross-group)
-
-  const openSettings = useCallback((section?: SettingsSection) => {
-    if (section) setSettingsSection(section)
-    setShowSettings(true)
-  }, [])
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -101,14 +91,36 @@ export function AppShell() {
     [panelGroups],
   )
 
-  // canvasWidth → first group, wikiWidth → last group
-  const handleLeftResize = useCallback((delta: number) => {
-    setCanvasWidth(Math.min(MAX_LEFT_WIDTH, Math.max(MIN_LEFT_WIDTH, canvasWidth + delta)))
-  }, [canvasWidth, setCanvasWidth])
+  // Determine which group is the "flex" group (fills remaining space)
+  const flexGroupId = useMemo(() => {
+    if (layoutGroups.length <= 1) return layoutGroups[0]?.id ?? null
+    // Prefer group containing 'editor'
+    const editorGroup = layoutGroups.find(g => g.tabs.includes('editor'))
+    if (editorGroup) return editorGroup.id
+    // Otherwise, first group not containing 'wiki' or 'canvas'
+    const neutralGroup = layoutGroups.find(g =>
+      !g.tabs.includes('wiki') && !g.tabs.includes('canvas')
+    )
+    if (neutralGroup) return neutralGroup.id
+    // Fallback: last group
+    return layoutGroups[layoutGroups.length - 1].id
+  }, [layoutGroups])
 
-  const handleRightResize = useCallback((delta: number) => {
-    setWikiWidth(Math.min(MAX_RIGHT_WIDTH, Math.max(MIN_RIGHT_WIDTH, wikiWidth - delta)))
-  }, [wikiWidth, setWikiWidth])
+  // Unified panel resize handler — reads fresh state from store
+  const handlePanelResize = useCallback((leftGroupId: string, rightGroupId: string, delta: number) => {
+    const { panelGroups: groups } = useEditorStore.getState()
+    const leftGroup = groups.find(g => g.id === leftGroupId)
+    const rightGroup = groups.find(g => g.id === rightGroupId)
+    if (!leftGroup || !rightGroup) return
+
+    if (leftGroupId === flexGroupId) {
+      // Left is flex: adjust right group (drag right = narrower)
+      setGroupWidth(rightGroupId, rightGroup.width - delta)
+    } else {
+      // Left is fixed (or both fixed): adjust left group (drag right = wider)
+      setGroupWidth(leftGroupId, leftGroup.width + delta)
+    }
+  }, [flexGroupId, setGroupWidth])
 
   const handleOpenFilesResize = useCallback((delta: number) => {
     setOpenFilesWidth(Math.min(MAX_OPENFILES_WIDTH, Math.max(MIN_OPENFILES_WIDTH, openFilesWidth + delta)))
@@ -119,7 +131,7 @@ export function AppShell() {
     dragGroupRef.current = groupId
     dragTabRef.current = null
     e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', `group:${groupId}`)
+    e.dataTransfer.setData('application/x-onion-panel', `group:${groupId}`)
     const img = new Image()
     img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
     e.dataTransfer.setDragImage(img, 0, 0)
@@ -130,7 +142,7 @@ export function AppShell() {
     dragTabRef.current = tab
     dragGroupRef.current = null
     e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', `tab:${tab}`)
+    e.dataTransfer.setData('application/x-onion-panel', `tab:${tab}`)
     const img = new Image()
     img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
     e.dataTransfer.setDragImage(img, 0, 0)
@@ -243,33 +255,29 @@ export function AppShell() {
           const isFirst = index === 0
           const isLast = index === total - 1
           const isMultiTab = group.tabs.length > 1
+          const isFlexGroup = isSolo || group.id === flexGroupId
 
-          let style: React.CSSProperties
-          if (isSolo) {
-            style = { flex: 1 }
-          } else if (isFirst) {
-            style = { width: canvasWidth }
-          } else if (isLast && total >= 3) {
-            style = { width: wikiWidth }
-          } else {
-            style = { flex: 1, minWidth: 200 }
-          }
+          const style: React.CSSProperties = isFlexGroup
+            ? { flex: 1, minWidth: MIN_PANEL_WIDTH }
+            : { width: group.width }
 
           const isDragOver = dragOverGroupId === group.id
 
           const borderClass = cn(
-            'flex flex-col shrink-0 overflow-hidden bg-bg-primary h-full min-h-0 relative',
+            'flex flex-col overflow-hidden bg-bg-primary h-full min-h-0 relative',
+            !isFlexGroup && 'shrink-0',
+            isFlexGroup && 'shrink min-w-0',
             !isSolo && !isFirst && 'border-l border-border',
           )
 
           return (
             <Fragment key={group.id}>
-              {/* Resize handle between groups */}
-              {index === 1 && total >= 2 && (
-                <ResizeHandle side="right" onResize={handleLeftResize} />
-              )}
-              {isLast && total >= 3 && (
-                <ResizeHandle side="left" onResize={handleRightResize} />
+              {/* Resize handle between every adjacent pair */}
+              {!isFirst && !isSolo && (
+                <ResizeHandle
+                  side="left"
+                  onResize={(delta) => handlePanelResize(layoutGroups[index - 1].id, group.id, delta)}
+                />
               )}
 
               <div
@@ -329,7 +337,7 @@ export function AppShell() {
 
       {/* Dialogs */}
       <ProjectDialog open={showProjectDialog} onClose={() => setShowProjectDialog(false)} />
-      <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} initialSection={settingsSection} />
+      <SettingsDialog open={showSettings} onClose={closeSettings} initialSection={settingsSection} />
     </div>
   )
 }
