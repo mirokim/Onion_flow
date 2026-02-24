@@ -125,6 +125,7 @@ export async function callWithTools(
   messages: ApiMessage[],
   useTools: boolean = true,
   attachments?: AIAttachment[],
+  signal?: AbortSignal,
 ): Promise<ProviderResponse> {
   if (!config.apiKey && !config.baseUrl) throw new Error(`${config.provider} API key not set`)
 
@@ -138,15 +139,15 @@ export async function callWithTools(
     }
   }
 
-  if (config.provider === 'openai') return callOpenAI(config, messages, useTools)
-  if (config.provider === 'anthropic') return callAnthropic(config, messages, useTools)
-  if (config.provider === 'gemini') return callGemini(config, messages, useTools)
-  if (config.provider === 'llama') return callLlama(config, messages, useTools)
-  if (config.provider === 'grok') return callGrok(config, messages, useTools)
+  if (config.provider === 'openai') return callOpenAI(config, messages, useTools, signal)
+  if (config.provider === 'anthropic') return callAnthropic(config, messages, useTools, signal)
+  if (config.provider === 'gemini') return callGemini(config, messages, useTools, signal)
+  if (config.provider === 'llama') return callLlama(config, messages, useTools, signal)
+  if (config.provider === 'grok') return callGrok(config, messages, useTools, signal)
   throw new Error('Unknown provider')
 }
 
-async function callOpenAI(config: AIConfig, messages: ApiMessage[], useTools: boolean): Promise<ProviderResponse> {
+async function callOpenAI(config: AIConfig, messages: ApiMessage[], useTools: boolean, signal?: AbortSignal): Promise<ProviderResponse> {
   const body: Record<string, unknown> = { model: config.model, messages }
   if (useTools) body.tools = toOpenAITools()
 
@@ -154,6 +155,7 @@ async function callOpenAI(config: AIConfig, messages: ApiMessage[], useTools: bo
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
     body: JSON.stringify(body),
+    signal,
   })
   const data = await res.json() as OpenAIResponse
   if (data.error) throw new Error(data.error.message)
@@ -171,7 +173,7 @@ async function callOpenAI(config: AIConfig, messages: ApiMessage[], useTools: bo
   return { content: msg.content || '', toolCalls: [], stopReason: 'end' }
 }
 
-async function callAnthropic(config: AIConfig, messages: ApiMessage[], useTools: boolean): Promise<ProviderResponse> {
+async function callAnthropic(config: AIConfig, messages: ApiMessage[], useTools: boolean, signal?: AbortSignal): Promise<ProviderResponse> {
   const systemMsg = messages.find(m => m.role === 'system')
   const chatMsgs = messages.filter(m => m.role !== 'system')
 
@@ -211,7 +213,7 @@ async function callAnthropic(config: AIConfig, messages: ApiMessage[], useTools:
   }
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST', headers, body: JSON.stringify(body),
+    method: 'POST', headers, body: JSON.stringify(body), signal,
   })
   const data = await res.json() as AnthropicResponse
   if (data.error) throw new Error(data.error.message)
@@ -237,7 +239,7 @@ function sanitizeGeminiContent(text: string, role: string): string {
     .trim() || text
 }
 
-async function callGemini(config: AIConfig, messages: ApiMessage[], useTools: boolean): Promise<ProviderResponse> {
+async function callGemini(config: AIConfig, messages: ApiMessage[], useTools: boolean, signal?: AbortSignal): Promise<ProviderResponse> {
   const systemMsg = messages.find(m => m.role === 'system')
   const chatMsgs = messages.filter(m => m.role !== 'system' && m.role !== 'tool')
 
@@ -278,6 +280,7 @@ async function callGemini(config: AIConfig, messages: ApiMessage[], useTools: bo
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.apiKey },
       body: JSON.stringify(body),
+      signal,
     },
   )
   const data = await res.json() as GeminiResponse
@@ -297,7 +300,7 @@ async function callGemini(config: AIConfig, messages: ApiMessage[], useTools: bo
   return { content, toolCalls, stopReason: toolCalls.length > 0 ? 'tool_use' : 'end' }
 }
 
-async function callLlama(config: AIConfig, messages: ApiMessage[], useTools: boolean): Promise<ProviderResponse> {
+async function callLlama(config: AIConfig, messages: ApiMessage[], useTools: boolean, signal?: AbortSignal): Promise<ProviderResponse> {
   const baseUrl = config.baseUrl?.replace(/\/+$/, '') || 'https://api.together.xyz/v1'
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
@@ -311,7 +314,7 @@ async function callLlama(config: AIConfig, messages: ApiMessage[], useTools: boo
     const body: Record<string, unknown> = { model: config.model, messages }
     if (withTools) body.tools = isLocal ? toOpenAIToolsCompact() : toOpenAITools()
 
-    const res = await fetch(fetchUrl, { method: 'POST', headers, body: JSON.stringify(body) })
+    const res = await fetch(fetchUrl, { method: 'POST', headers, body: JSON.stringify(body), signal })
     const rawText = await res.text().catch(() => '')
     let data: OpenAIResponse & { error?: { message?: string } | string }
     try {
@@ -356,7 +359,7 @@ async function callLlama(config: AIConfig, messages: ApiMessage[], useTools: boo
   return await doFetch(false)
 }
 
-async function callGrok(config: AIConfig, messages: ApiMessage[], useTools: boolean): Promise<ProviderResponse> {
+async function callGrok(config: AIConfig, messages: ApiMessage[], useTools: boolean, signal?: AbortSignal): Promise<ProviderResponse> {
   const baseUrl = config.baseUrl?.replace(/\/+$/, '') || 'https://api.x.ai/v1'
   const body: Record<string, unknown> = { model: config.model, messages }
   if (useTools) body.tools = toOpenAITools()
@@ -365,6 +368,7 @@ async function callGrok(config: AIConfig, messages: ApiMessage[], useTools: bool
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
     body: JSON.stringify(body),
+    signal,
   })
   const data = await res.json() as OpenAIResponse
   if (data.error) throw new Error(data.error.message)

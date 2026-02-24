@@ -31,7 +31,7 @@ export function TabBar() {
             onClick={() => toggleTab(key)}
             className={cn(
               'flex items-center justify-center w-8 h-8 rounded transition-all',
-              'bg-accent/20 text-accent border border-accent/30',
+              'bg-bg-hover text-text-primary border border-border',
             )}
             title={label}
           >

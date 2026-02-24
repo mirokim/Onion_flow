@@ -137,7 +137,7 @@ export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canCl
               {pinned && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onTogglePin?.(tab.id) }}
-                  className="shrink-0 text-accent transition p-0.5 rounded hover:bg-bg-hover"
+                  className="shrink-0 text-text-muted transition p-0.5 rounded hover:bg-bg-hover"
                   title="탭 고정 해제"
                 >
                   <Pin className="w-3 h-3" />
@@ -150,7 +150,7 @@ export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canCl
                   {onTogglePin && (
                     <button
                       onClick={(e) => { e.stopPropagation(); onTogglePin(tab.id) }}
-                      className="text-text-muted hover:text-accent transition p-0.5 rounded hover:bg-bg-hover"
+                      className="text-text-muted hover:text-text-primary transition p-0.5 rounded hover:bg-bg-hover"
                       title="탭 고정"
                     >
                       <Pin className="w-3 h-3" />

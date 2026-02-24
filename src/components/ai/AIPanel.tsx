@@ -8,8 +8,13 @@ import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, MessageSquare, ToggleLeft, ToggleRight, Edit3, Check } from 'lucide-react'
 import { useAIStore } from '@/stores/aiStore'
 import { useProjectStore } from '@/stores/projectStore'
+import { useDebateStore } from '@/stores/debateStore'
 import { AIChatMessage } from './AIChatMessage'
 import { AIChatInput } from './AIChatInput'
+import { DebateSetup } from './debate/DebateSetup'
+import { DebateThread } from './debate/DebateThread'
+import { DebateControlBar } from './debate/DebateControlBar'
+import { DebateUserInput } from './debate/DebateUserInput'
 import { cn } from '@/lib/utils'
 import { PanelTabBar, type PanelDragHandlers } from '@/components/layout/PanelTabBar'
 import { useEditorStore } from '@/stores/editorStore'
@@ -19,12 +24,17 @@ interface AIPanelProps {
   isGrouped?: boolean
 }
 
+type AITabMode = 'chat' | 'debate'
+
 export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
   const { t } = useTranslation()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showSidebar, setShowSidebar] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
+  const [activeAITab, setActiveAITab] = useState<AITabMode>('chat')
+
+  const debateStatus = useDebateStore((s) => s.status)
 
   const {
     messages,
@@ -100,138 +110,168 @@ export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
           panelDragHandlers={panelDragHandlers}
           panelType="ai"
           actions={
-            <>
-              {activeProviders.length === 0 && (
-                <span className="text-[10px] text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">
-                  {t('ai.noProvider', 'API 키 필요')}
-                </span>
-              )}
-              {activeProviders.length > 1 && (
+            activeAITab === 'chat' ? (
+              <>
+                {activeProviders.length === 0 && (
+                  <span className="text-[10px] text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">
+                    {t('ai.noProvider', 'API 키 필요')}
+                  </span>
+                )}
+                {activeProviders.length > 1 && (
+                  <button
+                    onClick={() => setTripleMode(!tripleMode)}
+                    className={cn(
+                      'p-1 rounded transition text-xs flex items-center gap-1',
+                      tripleMode ? 'text-accent' : 'text-text-muted hover:text-text-primary',
+                    )}
+                    title={t('ai.tripleMode', '트리플 모드')}
+                  >
+                    {tripleMode ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                    <span className="text-[10px]">Triple</span>
+                  </button>
+                )}
                 <button
-                  onClick={() => setTripleMode(!tripleMode)}
-                  className={cn(
-                    'p-1 rounded transition text-xs flex items-center gap-1',
-                    tripleMode ? 'text-accent' : 'text-text-muted hover:text-text-primary',
-                  )}
-                  title={t('ai.tripleMode', '트리플 모드')}
+                  onClick={() => setShowSidebar(!showSidebar)}
+                  className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
+                  title={t('ai.conversations', '대화 목록')}
                 >
-                  {tripleMode ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                  <span className="text-[10px]">Triple</span>
+                  <MessageSquare className="w-4 h-4" />
                 </button>
-              )}
+              </>
+            ) : (
               <button
-                onClick={() => setShowSidebar(!showSidebar)}
-                className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
-                title={t('ai.conversations', '대화 목록')}
+                onClick={() => setActiveAITab('chat')}
+                className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition text-[10px]"
+                title="채팅으로 돌아가기"
               >
-                <MessageSquare className="w-4 h-4" />
+                Chat
               </button>
-            </>
+            )
           }
         />
       )}
 
-      {/* Conversation sidebar */}
-      {showSidebar && (
-        <div className="border-b border-border bg-bg-secondary p-2 space-y-1 max-h-60 overflow-y-auto">
-          <button
-            onClick={handleNewConversation}
-            className="w-full flex items-center gap-1 text-xs px-2 py-1.5 rounded hover:bg-bg-hover text-accent transition"
-          >
-            <Plus className="w-3 h-3" />
-            {t('ai.newConversation', '새 대화')}
-          </button>
-          <button
-            onClick={() => { clearMessages(); setShowSidebar(false) }}
-            className="w-full flex items-center gap-1 text-xs px-2 py-1.5 rounded hover:bg-bg-hover text-text-muted transition"
-          >
-            <Trash2 className="w-3 h-3" />
-            {t('ai.clearMessages', '현재 대화 초기화')}
-          </button>
-          <div className="h-px bg-border my-1" />
-          {conversations.map(conv => (
-            <div
-              key={conv.id}
-              className={cn(
-                'flex items-center gap-1 px-2 py-1 rounded text-xs transition group',
-                conv.id === currentConversationId ? 'bg-accent/10 text-accent' : 'hover:bg-bg-hover text-text-secondary',
-              )}
-            >
-              {editingId === conv.id ? (
-                <div className="flex-1 flex items-center gap-1">
-                  <input
-                    autoFocus
-                    value={editTitle}
-                    onChange={e => setEditTitle(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleRename(conv.id)}
-                    className="flex-1 bg-bg-primary border border-border rounded px-1 py-0.5 text-xs"
-                  />
-                  <button onClick={() => handleRename(conv.id)} className="p-0.5 text-green-500">
-                    <Check className="w-3 h-3" />
-                  </button>
+      {/* ── Chat Tab ── */}
+      {activeAITab === 'chat' && (
+        <>
+          {/* Conversation sidebar */}
+          {showSidebar && (
+            <div className="border-b border-border bg-bg-secondary p-2 space-y-1 max-h-60 overflow-y-auto">
+              <button
+                onClick={handleNewConversation}
+                className="w-full flex items-center gap-1 text-xs px-2 py-1.5 rounded hover:bg-bg-hover text-accent transition"
+              >
+                <Plus className="w-3 h-3" />
+                {t('ai.newConversation', '새 대화')}
+              </button>
+              <button
+                onClick={() => { clearMessages(); setShowSidebar(false) }}
+                className="w-full flex items-center gap-1 text-xs px-2 py-1.5 rounded hover:bg-bg-hover text-text-muted transition"
+              >
+                <Trash2 className="w-3 h-3" />
+                {t('ai.clearMessages', '현재 대화 초기화')}
+              </button>
+              <div className="h-px bg-border my-1" />
+              {conversations.map(conv => (
+                <div
+                  key={conv.id}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 rounded text-xs transition group',
+                    conv.id === currentConversationId ? 'bg-accent/10 text-accent' : 'hover:bg-bg-hover text-text-secondary',
+                  )}
+                >
+                  {editingId === conv.id ? (
+                    <div className="flex-1 flex items-center gap-1">
+                      <input
+                        autoFocus
+                        value={editTitle}
+                        onChange={e => setEditTitle(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleRename(conv.id)}
+                        className="flex-1 bg-bg-primary border border-border rounded px-1 py-0.5 text-xs"
+                      />
+                      <button onClick={() => handleRename(conv.id)} className="p-0.5 text-green-500">
+                        <Check className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleSelectConversation(conv.id)}
+                        className="flex-1 text-left truncate"
+                      >
+                        {conv.title}
+                      </button>
+                      <button
+                        onClick={() => { setEditingId(conv.id); setEditTitle(conv.title) }}
+                        className="p-0.5 opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary transition"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(conv.id)}
+                        className="p-0.5 opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 transition"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </>
+                  )}
                 </div>
-              ) : (
-                <>
-                  <button
-                    onClick={() => handleSelectConversation(conv.id)}
-                    className="flex-1 text-left truncate"
-                  >
-                    {conv.title}
-                  </button>
-                  <button
-                    onClick={() => { setEditingId(conv.id); setEditTitle(conv.title) }}
-                    className="p-0.5 opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary transition"
-                  >
-                    <Edit3 className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(conv.id)}
-                    className="p-0.5 opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 transition"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto py-2">
+            {messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-text-muted text-sm px-6 text-center">
+                <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
+                <p>{t('ai.emptyChat', '메시지를 입력하여 AI와 대화를 시작하세요.')}</p>
+                <p className="text-xs mt-1 opacity-60">
+                  {t('ai.emptyChatHint', '캐릭터 등록, 세계관 설정, 스토리 작성 등을 요청할 수 있습니다.')}
+                </p>
+              </div>
+            ) : (
+              messages.map(msg => <AIChatMessage key={msg.id} message={msg} />)
+            )}
+
+            {/* Loading indicator */}
+            {anyLoading && (
+              <div className="px-3 py-2 flex items-center gap-2 text-text-muted text-xs">
+                <div className="flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <span>{t('ai.thinking', '생각 중...')}</span>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <AIChatInput
+            onSend={handleSend}
+            isLoading={anyLoading}
+            templates={promptTemplates}
+            onToggleDebate={() => setActiveAITab('debate')}
+            debateActive={false}
+          />
+        </>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto py-2">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-text-muted text-sm px-6 text-center">
-            <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
-            <p>{t('ai.emptyChat', '메시지를 입력하여 AI와 대화를 시작하세요.')}</p>
-            <p className="text-xs mt-1 opacity-60">
-              {t('ai.emptyChatHint', '캐릭터 등록, 세계관 설정, 스토리 작성 등을 요청할 수 있습니다.')}
-            </p>
-          </div>
+      {/* ── Debate Tab ── */}
+      {activeAITab === 'debate' && (
+        debateStatus === 'idle' ? (
+          <DebateSetup onBack={() => setActiveAITab('chat')} />
         ) : (
-          messages.map(msg => <AIChatMessage key={msg.id} message={msg} />)
-        )}
-
-        {/* Loading indicator */}
-        {anyLoading && (
-          <div className="px-3 py-2 flex items-center gap-2 text-text-muted text-xs">
-            <div className="flex gap-1">
-              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-1.5 h-1.5 bg-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-            </div>
-            <span>{t('ai.thinking', '생각 중...')}</span>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input */}
-      <AIChatInput
-        onSend={handleSend}
-        isLoading={anyLoading}
-        templates={promptTemplates}
-      />
+          <>
+            <DebateControlBar />
+            <DebateThread />
+            <DebateUserInput />
+          </>
+        )
+      )}
     </div>
   )
 }
