@@ -13,15 +13,26 @@ import {
   BackgroundVariant,
   useReactFlow,
   ReactFlowProvider,
+  type OnConnectStart,
 } from '@xyflow/react'
 import { useCanvasStore } from '@/stores/canvasStore'
 import { useProjectStore } from '@/stores/projectStore'
+import { useWikiStore } from '@/stores/wikiStore'
+import { useEditorStore } from '@/stores/editorStore'
 import { BaseNode } from '@nodes/_base/BaseNode'
 import { GroupNode } from '@nodes/group/GroupNode'
 import { CanvasToolbar } from './CanvasToolbar'
 import { CanvasContextMenu } from './CanvasContextMenu'
 import { getNodeDefinition, type NodeTypeDefinition } from '@nodes/index'
 import { toast } from '@/components/common/Toast'
+import {
+  addNodeWithUndo,
+  removeNodeWithUndo,
+  connectNodesWithUndo,
+  disconnectWireWithUndo,
+  updateNodePositionsBatchWithUndo,
+  reconnectWireWithUndo,
+} from '@/stores/undoCanvasActions'
 
 const nodeTypes = {
   baseNode: BaseNode,
@@ -31,12 +42,8 @@ const nodeTypes = {
 function NodeCanvasInner() {
   const currentProject = useProjectStore(s => s.currentProject)
 
-  const addNode = useCanvasStore(s => s.addNode)
-  const removeNode = useCanvasStore(s => s.removeNode)
   const updateNodePosition = useCanvasStore(s => s.updateNodePosition)
   const updateNodeSize = useCanvasStore(s => s.updateNodeSize)
-  const connectNodesAction = useCanvasStore(s => s.connectNodes)
-  const disconnectWire = useCanvasStore(s => s.disconnectWire)
   const enterDepth = useCanvasStore(s => s.enterDepth)
   const addNodeToGroup = useCanvasStore(s => s.addNodeToGroup)
   const removeNodeFromGroup = useCanvasStore(s => s.removeNodeFromGroup)
@@ -82,6 +89,7 @@ function NodeCanvasInner() {
               width: n.width || 300,
               height: n.height || 200,
               style: { width: n.width || 300, height: n.height || 200 },
+              zIndex: -1, // Groups always behind regular nodes
             }
           : {
               ...(n.width ? { width: n.width } : {}),
@@ -149,14 +157,17 @@ function NodeCanvasInner() {
         // ⚠ Do NOT feed measured dimensions back into Zustand for every node!
         // Doing so creates new node objects → ReactFlow re-measures → infinite loop,
         // which also prevents handle-bounds from stabilising → edges never render.
-        // ReactFlow tracks measured dimensions internally; we only persist group
-        // resize to the DB when the user finishes resizing.
-        if (!(change as any).resizing) {
-          const sn = useCanvasStore.getState().nodes.find(n => n.id === change.id)
-          if (sn?.type === 'group') {
-            updateNodeSize(change.id, change.dimensions.width, change.dimensions.height)
-          }
+        // We only persist group dimensions when a resize operation *actually ends*
+        // (not on initial measurement, which would trigger a feedback loop).
+        if ((change as any).resizing) {
+          // User is actively resizing → track which node
+          resizingNodeRef.current = change.id
+        } else if (resizingNodeRef.current === change.id) {
+          // Resize just ended → persist final dimensions
+          resizingNodeRef.current = null
+          updateNodeSize(change.id, change.dimensions.width, change.dimensions.height)
         }
+        // Otherwise: initial measurement → ignore (prevents dimension feedback loop)
       } else if (change.type === 'select') {
         selChanged = true
         if (change.selected) {
@@ -206,6 +217,25 @@ function NodeCanvasInner() {
   // ── Edge reconnection tracking ──
   const reconnectSuccessful = useRef(false)
 
+  // ── Wire-drop node picker: track pending connection ──
+  const pendingConnectionRef = useRef<{
+    nodeId: string | null
+    handleId: string | null
+    handleType: string | null
+  } | null>(null)
+  const connectionMadeRef = useRef(false)
+  const [pendingConnection, setPendingConnection] = useState<{
+    nodeId: string
+    handleId: string
+    handleType: 'source' | 'target'
+  } | null>(null)
+
+  // ── Group resize tracking (avoid dimension feedback loop on initial measurement) ──
+  const resizingNodeRef = useRef<string | null>(null)
+
+  // ── Drag start positions for undo (captured in onNodeDragStart) ──
+  const dragStartPositionsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+
   const onPaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
     event.preventDefault()
     // If mouse moved >5px from right-click start, this was a pan drag — don't show menu
@@ -246,8 +276,8 @@ function NodeCanvasInner() {
   // Right-click on edge → quick delete (no context menu needed)
   const onEdgeContextMenu = useCallback((event: React.MouseEvent, edge: Edge) => {
     event.preventDefault()
-    disconnectWire(edge.id)
-  }, [disconnectWire])
+    disconnectWireWithUndo(edge.id)
+  }, [])
 
   // Single click on empty canvas → close context menu
   const onPaneClick = useCallback(() => {
@@ -275,6 +305,7 @@ function NodeCanvasInner() {
     setContextMenu(null)
     setContextTargetNodeId(null)
     setContextMenuInitialSubmenu(null)
+    setPendingConnection(null)
   }, [])
 
   // ── Handlers ──
@@ -286,15 +317,31 @@ function NodeCanvasInner() {
         return
       }
       const isGroup = def.type === 'group'
-      await addNode(
+      const newNode = await addNodeWithUndo(
         currentProject.id,
         def.type,
         position,
         def.defaultData,
         isGroup ? { width: 300, height: 200 } : undefined,
       )
+
+      // Auto-connect if there's a pending wire drop
+      if (pendingConnection && !isGroup) {
+        const { nodeId, handleId, handleType } = pendingConnection
+
+        if (handleType === 'source') {
+          // Dragged FROM a source handle → connect source_node → new_node's first input
+          const targetHandle = def.inputs.length > 0 ? def.inputs[0].id : 'in'
+          connectNodesWithUndo(currentProject.id, nodeId, newNode.id, handleId, targetHandle)
+        } else {
+          // Dragged FROM a target handle → connect new_node's first output → source_node
+          const sourceHandle = def.outputs.length > 0 ? def.outputs[0].id : 'out'
+          connectNodesWithUndo(currentProject.id, newNode.id, nodeId, sourceHandle, handleId)
+        }
+        setPendingConnection(null)
+      }
     },
-    [currentProject, addNode],
+    [currentProject, pendingConnection],
   )
 
   const handleAddGroup = useCallback(
@@ -303,7 +350,7 @@ function NodeCanvasInner() {
         toast.warning('프로젝트를 먼저 생성하거나 선택하세요.')
         return
       }
-      await addNode(
+      await addNodeWithUndo(
         currentProject.id,
         'group',
         position,
@@ -311,15 +358,67 @@ function NodeCanvasInner() {
         { width: 300, height: 200 },
       )
     },
-    [currentProject, addNode],
+    [currentProject],
   )
 
   const handleDeleteNode = useCallback(
     async (nodeId: string) => {
-      await removeNode(nodeId)
+      await removeNodeWithUndo(nodeId)
     },
-    [removeNode],
+    [],
   )
+
+  // ── Wire-drop node picker: onConnectStart / onConnectEnd ──
+  const onConnectStart: OnConnectStart = useCallback((_event, params) => {
+    pendingConnectionRef.current = {
+      nodeId: params.nodeId,
+      handleId: params.handleId,
+      handleType: params.handleType,
+    }
+    connectionMadeRef.current = false
+  }, [])
+
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
+    if (connectionMadeRef.current) {
+      pendingConnectionRef.current = null
+      return
+    }
+
+    const params = pendingConnectionRef.current
+    pendingConnectionRef.current = null
+    if (!params?.nodeId || !params?.handleId || !params?.handleType) return
+
+    // Get drop position
+    let clientX: number, clientY: number
+    if ('clientX' in event) {
+      clientX = event.clientX
+      clientY = event.clientY
+    } else {
+      const touch = event.changedTouches?.[0]
+      if (!touch) return
+      clientX = touch.clientX
+      clientY = touch.clientY
+    }
+
+    const flowPos = screenToFlowPosition({ x: clientX, y: clientY })
+
+    // Store pending connection for auto-connect when node is created
+    setPendingConnection({
+      nodeId: params.nodeId,
+      handleId: params.handleId,
+      handleType: params.handleType as 'source' | 'target',
+    })
+
+    // Show add-node menu at drop position
+    setContextMenuInitialSubmenu('add-node')
+    setContextTargetNodeId(null)
+    setContextMenu({
+      x: clientX,
+      y: clientY,
+      canvasX: flowPos.x,
+      canvasY: flowPos.y,
+    })
+  }, [screenToFlowPosition])
 
   const isValidConnection = useCallback((connection: Edge | Connection) => {
     if (!connection.source || !connection.target) return false
@@ -341,8 +440,9 @@ function NodeCanvasInner() {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      connectionMadeRef.current = true
       if (!currentProject || !connection.source || !connection.target) return
-      connectNodesAction(
+      connectNodesWithUndo(
         currentProject.id,
         connection.source,
         connection.target,
@@ -350,40 +450,115 @@ function NodeCanvasInner() {
         connection.targetHandle || 'in',
       )
     },
-    [currentProject, connectNodesAction],
+    [currentProject],
+  )
+
+  const onNodeDragStart = useCallback(
+    (_event: React.MouseEvent, _node: Node, draggedNodes: Node[]) => {
+      dragStartPositionsRef.current.clear()
+      for (const dn of draggedNodes) {
+        dragStartPositionsRef.current.set(dn.id, { ...dn.position })
+      }
+    },
+    [],
   )
 
   const onNodeDragStop = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      updateNodePosition(node.id, node.position)
+    (_event: React.MouseEvent, node: Node, draggedNodes: Node[]) => {
+      // Build moves array with old/new positions for undo
+      const moves = draggedNodes.map(dn => ({
+        nodeId: dn.id,
+        oldPosition: dragStartPositionsRef.current.get(dn.id) || { ...dn.position },
+        newPosition: { ...dn.position },
+      }))
+      dragStartPositionsRef.current.clear()
+
+      // Persist positions with undo support
+      updateNodePositionsBatchWithUndo(moves)
+
+      // Auto-detect group membership: if a non-group node is dropped inside a group, add it
+      const groups = canvasNodes.filter(n => n.type === 'group')
+      if (groups.length === 0) return
+
+      for (const dn of draggedNodes) {
+        if (dn.type === 'groupNode') continue
+        const nodeData = dn.data as Record<string, any>
+        if (nodeData?.groupId) continue // Already in a group
+
+        for (const group of groups) {
+          const gw = group.width || 300
+          const gh = group.height || 200
+          if (
+            dn.position.x >= group.position.x &&
+            dn.position.x <= group.position.x + gw &&
+            dn.position.y >= group.position.y &&
+            dn.position.y <= group.position.y + gh
+          ) {
+            addNodeToGroup(dn.id, group.id)
+            break
+          }
+        }
+      }
     },
-    [updateNodePosition],
+    [canvasNodes, addNodeToGroup],
   )
 
-  // Node double-click depth entry disabled — hierarchy will be redesigned later
+  // Node double-click → open linked wiki entry (or create one for plot nodes)
   const onNodeDoubleClick = useCallback(
-    (_event: React.MouseEvent, _node: Node) => {
-      // noop: depth hierarchy disabled
+    async (_event: React.MouseEvent, node: Node) => {
+      const nodeData = node.data as Record<string, any>
+      const nodeType = nodeData?.nodeType as string | undefined
+
+      // Helper: ensure wiki panel is open and select entry
+      const openWikiEntry = (entryId: string) => {
+        const editorState = useEditorStore.getState()
+        if (!editorState.openTabs.includes('wiki')) {
+          editorState.toggleTab('wiki')
+        }
+        useWikiStore.getState().selectEntry(entryId)
+      }
+
+      // If node already has a wikiEntryId, navigate to it
+      if (nodeData?.wikiEntryId) {
+        openWikiEntry(nodeData.wikiEntryId as string)
+        return
+      }
+
+      // Plot nodes without wikiEntryId: create a new "story" wiki entry
+      if (nodeType?.startsWith('plot_') && currentProject) {
+        const entry = await useWikiStore.getState().createEntry(
+          currentProject.id,
+          'story',
+          '',
+        )
+        // Link the new entry to this node
+        if (nodeData?.nodeId) {
+          useCanvasStore.getState().updateNodeData(nodeData.nodeId as string, {
+            wikiEntryId: entry.id,
+          })
+        }
+        openWikiEntry(entry.id)
+      }
     },
-    [],
+    [currentProject],
   )
 
   const onNodesDelete = useCallback(
     (deleted: Node[]) => {
       for (const node of deleted) {
-        removeNode(node.id)
+        removeNodeWithUndo(node.id)
       }
     },
-    [removeNode],
+    [],
   )
 
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
       for (const edge of deleted) {
-        disconnectWire(edge.id)
+        disconnectWireWithUndo(edge.id)
       }
     },
-    [disconnectWire],
+    [],
   )
 
   // ── Edge reconnection: drag handle to reconnect or drop on empty space to disconnect ──
@@ -395,27 +570,27 @@ function NodeCanvasInner() {
     (oldEdge: Edge, newConnection: Connection) => {
       reconnectSuccessful.current = true
       if (!currentProject || !newConnection.source || !newConnection.target) return
-      // Delete old wire, create new one
-      disconnectWire(oldEdge.id)
-      connectNodesAction(
+      // Reconnect with undo (compound: delete old + create new)
+      reconnectWireWithUndo(
         currentProject.id,
+        oldEdge.id,
         newConnection.source,
         newConnection.target,
         newConnection.sourceHandle || 'out',
         newConnection.targetHandle || 'in',
       )
     },
-    [currentProject, disconnectWire, connectNodesAction],
+    [currentProject],
   )
 
   const handleReconnectEnd = useCallback(
     (_event: MouseEvent | TouchEvent, edge: Edge) => {
       // If edge was dropped on empty space (not reconnected), disconnect it
       if (!reconnectSuccessful.current) {
-        disconnectWire(edge.id)
+        disconnectWireWithUndo(edge.id)
       }
     },
-    [disconnectWire],
+    [],
   )
 
   const handleAddNode = useCallback(
@@ -426,7 +601,7 @@ function NodeCanvasInner() {
       }
       const position = { x: 200 + Math.random() * 200, y: 100 + Math.random() * 200 }
       const isGroup = def.type === 'group'
-      addNode(
+      addNodeWithUndo(
         currentProject.id,
         def.type,
         position,
@@ -434,7 +609,7 @@ function NodeCanvasInner() {
         isGroup ? { width: 300, height: 200 } : undefined,
       )
     },
-    [currentProject, addNode],
+    [currentProject],
   )
 
   // Get target node's groupId for context menu
@@ -459,6 +634,9 @@ function NodeCanvasInner() {
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onNodeDoubleClick={onNodeDoubleClick}
         onNodesDelete={onNodesDelete}

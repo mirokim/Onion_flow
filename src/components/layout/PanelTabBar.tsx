@@ -6,8 +6,10 @@
  *   2. Panel-level drag (reorder panels in the layout) — via panelDragHandlers
  */
 import { useState, useRef, Fragment } from 'react'
-import { X, Plus, GripVertical, Pin } from 'lucide-react'
+import { X, Plus, Pin } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { PanelTab } from '@/stores/editorStore'
+import { TabContextMenu } from './TabContextMenu'
 
 export interface PanelDragHandlers {
   onDragStart: (e: React.DragEvent) => void
@@ -35,31 +37,43 @@ interface PanelTabBarProps {
   panelDragHandlers?: PanelDragHandlers
   /** Optional right-side action buttons (e.g. add wiki entry, template picker) */
   actions?: React.ReactNode
+  /** Hide the grip handle (e.g. when panel is in a group and group tab bar handles dragging) */
+  hideGripHandle?: boolean
+  /** Panel type — used to determine which context menu items to show */
+  panelType?: PanelTab
+  /** Rename a tab (canvas/editor inner tabs only) */
+  onRenameTab?: (tabId: string) => void
+  /** Duplicate a tab */
+  onDuplicateTab?: (tabId: string) => void
 }
 
-export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canClose = true, onReorder, onTogglePin, panelDragHandlers, actions }: PanelTabBarProps) {
+export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canClose = true, onReorder, onTogglePin, panelDragHandlers, actions, hideGripHandle, panelType, onRenameTab, onDuplicateTab }: PanelTabBarProps) {
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const dragItem = useRef<string | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
+
+  // Decide whether each tab's drag triggers inner reorder or panel-level drag
+  const hasMultipleTabs = tabs.length > 1 && !!onReorder
 
   if (tabs.length === 0 && !onAdd) return null
 
+  const ctxTab = ctxMenu ? tabs.find(t => t.id === ctxMenu.tabId) : null
+  const canRename = !!onRenameTab && (panelType === 'canvas' || panelType === 'editor')
+  const canDuplicate = !!onDuplicateTab && panelType !== 'ai'
+
   return (
     <div
-      className="flex items-center bg-bg-secondary border-b border-border shrink-0 overflow-x-auto h-8"
-    >
-      {/* Dedicated grip handle for panel-level drag reorder */}
-      {panelDragHandlers && (
-        <div
-          className="flex items-center justify-center w-5 h-full shrink-0 cursor-grab active:cursor-grabbing text-text-muted hover:text-text-secondary transition"
-          draggable
-          onDragStart={(e) => panelDragHandlers.onDragStart(e)}
-          onDragEnd={() => panelDragHandlers.onDragEnd()}
-          title="패널 위치 이동"
-        >
-          <GripVertical className="w-3 h-3" />
-        </div>
+      className={cn(
+        "flex items-center bg-bg-secondary border-b border-border shrink-0 overflow-x-auto h-8",
+        panelDragHandlers && !hideGripHandle && 'cursor-grab active:cursor-grabbing',
       )}
-
+      draggable={!!panelDragHandlers && !hideGripHandle}
+      onDragStart={(e) => {
+        // Background area drag → panel-level drag
+        if (panelDragHandlers) panelDragHandlers.onDragStart(e)
+      }}
+      onDragEnd={() => panelDragHandlers?.onDragEnd()}
+    >
       {tabs.map((tab, idx) => {
         const pinned = !!tab.isPinned
         // Show divider between pinned and unpinned sections
@@ -69,8 +83,18 @@ export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canCl
           <Fragment key={tab.id}>
             <div
               draggable
-              onDragStart={(e) => { e.stopPropagation(); dragItem.current = tab.id }}
-              onDragOver={(e) => { e.preventDefault(); setDragOverId(tab.id) }}
+              onDragStart={(e) => {
+                if (hasMultipleTabs) {
+                  // Inner tab reorder — stop bubbling to panel drag
+                  e.stopPropagation()
+                  dragItem.current = tab.id
+                } else if (panelDragHandlers && !hideGripHandle) {
+                  // Single tab → trigger panel-level drag from the tab title
+                  e.stopPropagation()
+                  panelDragHandlers.onDragStart(e)
+                }
+              }}
+              onDragOver={(e) => { e.preventDefault(); if (hasMultipleTabs) setDragOverId(tab.id) }}
               onDragLeave={() => setDragOverId(null)}
               onDrop={() => {
                 const fromId = dragItem.current
@@ -81,13 +105,23 @@ export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canCl
                   onReorder(fromId, toId)
                 }
               }}
-              onDragEnd={() => { setDragOverId(null); dragItem.current = null }}
+              onDragEnd={() => {
+                setDragOverId(null)
+                dragItem.current = null
+                panelDragHandlers?.onDragEnd()
+              }}
               onMouseDown={(e) => {
                 // Middle-click to close (skip pinned)
                 if (e.button === 1 && canClose && !pinned) {
                   e.preventDefault()
                   onClose(tab.id)
                 }
+              }}
+              onContextMenu={(e) => {
+                if (!panelType) return
+                e.preventDefault()
+                e.stopPropagation()
+                setCtxMenu({ x: e.clientX, y: e.clientY, tabId: tab.id })
               }}
               className={cn(
                 'group relative flex items-center gap-1 h-full cursor-pointer select-none text-xs transition-colors shrink-0 max-w-[160px]',
@@ -154,6 +188,22 @@ export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canCl
         <div className="ml-auto flex items-center gap-1 shrink-0 pr-1">
           {actions}
         </div>
+      )}
+
+      {/* Tab context menu */}
+      {ctxMenu && ctxTab && (
+        <TabContextMenu
+          position={{ x: ctxMenu.x, y: ctxMenu.y }}
+          isPinned={!!ctxTab.isPinned}
+          canRename={canRename}
+          canDuplicate={canDuplicate}
+          canClose={canClose && !ctxTab.isPinned}
+          onClose={() => setCtxMenu(null)}
+          onTogglePin={() => onTogglePin?.(ctxMenu.tabId)}
+          onRenameTab={canRename ? () => onRenameTab?.(ctxMenu.tabId) : undefined}
+          onDuplicateTab={canDuplicate ? () => onDuplicateTab?.(ctxMenu.tabId) : undefined}
+          onCloseTab={() => onClose(ctxMenu.tabId)}
+        />
       )}
     </div>
   )

@@ -100,6 +100,20 @@ export const useWorldStore = create<WorldState>((set, get) => ({
       aliases: [],
       role: 'supporting',
       position: 'neutral',
+      age: '',
+      job: '',
+      affiliation: '',
+      logline: '',
+      archetype: 'other',
+      signatureItem: '',
+      habits: '',
+      status: 'alive',
+      currentLocation: '',
+      desire: '',
+      deficiency: '',
+      fear: '',
+      secret: '',
+      values: '',
       personality: '',
       abilities: '',
       appearance: '',
@@ -124,6 +138,11 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   deleteCharacter: async (id) => {
+    const character = get().characters.find(c => c.id === id)
+    if (character) {
+      const { useTrashStore } = await import('./trashStore')
+      await useTrashStore.getState().moveToTrash(character.projectId, 'character', character.id, character)
+    }
     await getAdapter().deleteCharacter(id)
     await getAdapter().deleteRelationsByCharacter(id)
     await getAdapter().deleteVersionsByEntity('character', id)
@@ -223,6 +242,11 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   deleteWorldSetting: async (id) => {
+    const ws = get().worldSettings.find(w => w.id === id)
+    if (ws) {
+      const { useTrashStore } = await import('./trashStore')
+      await useTrashStore.getState().moveToTrash(ws.projectId, 'world_setting', ws.id, ws)
+    }
     await getAdapter().deleteWorldSetting(id)
     await getAdapter().deleteVersionsByEntity('world_setting', id)
     set(s => ({ worldSettings: s.worldSettings.filter(w => w.id !== id) }))
@@ -269,6 +293,11 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   deleteItem: async (id) => {
+    const item = get().items.find(i => i.id === id)
+    if (item) {
+      const { useTrashStore } = await import('./trashStore')
+      await useTrashStore.getState().moveToTrash(item.projectId, 'item', item.id, item)
+    }
     await getAdapter().deleteItem(id)
     await getAdapter().deleteVersionsByEntity('item', id)
     set(s => ({
@@ -368,6 +397,11 @@ export const useWorldStore = create<WorldState>((set, get) => ({
   },
 
   deleteForeshadow: async (id) => {
+    const fs = get().foreshadows.find(f => f.id === id)
+    if (fs) {
+      const { useTrashStore } = await import('./trashStore')
+      await useTrashStore.getState().moveToTrash(fs.projectId, 'foreshadow', fs.id, fs)
+    }
     await getAdapter().deleteForeshadow(id)
     await getAdapter().deleteVersionsByEntity('foreshadow', id)
     set(s => ({ foreshadows: s.foreshadows.filter(f => f.id !== id) }))

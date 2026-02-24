@@ -61,7 +61,7 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
         // Electron: create subfolder and store path
         const projectFolderPath = `${selectedFolderPath}/${newTitle.trim()}`
         await api.createFolder(projectFolderPath)
-        await updateProject(project.id, { folderPath: projectFolderPath } as any)
+        await updateProject(project.id, { folderPath: projectFolderPath })
         toast.success(`프로젝트가 ${projectFolderPath}에 생성되었습니다.`)
 
         // Initial save to folder
@@ -69,7 +69,7 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
         await performInitialSave(writer, { ...project, folderPath: projectFolderPath })
       } else {
         // Web: mark as folder storage and perform initial save
-        await updateProject(project.id, { usesFolderStorage: true } as any)
+        await updateProject(project.id, { usesFolderStorage: true })
         const dirHandle = (window as any).__onionFlowDirHandle as FileSystemDirectoryHandle | undefined
         if (dirHandle) {
           // Create project subfolder
@@ -137,8 +137,10 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
       // Check if this project already exists locally
       const existingProject = projects.find(p => p.id === result.data!.project.id)
       if (existingProject) {
-        await selectProject(existingProject.id)
-        toast.info('기존 프로젝트가 선택되었습니다.')
+        // Sync latest folder data into SQLite, then select
+        const { loadFromFolder } = useProjectStore.getState()
+        await loadFromFolder(result.data, folderPath)
+        toast.info('폴더에서 최신 데이터를 동기화했습니다.')
       } else {
         // Load all data from folder into stores
         const { loadFromFolder } = useProjectStore.getState()
@@ -165,7 +167,7 @@ export function ProjectDialog({ open, onClose }: ProjectDialogProps) {
         if (existingProject) {
           // Update usesFolderStorage flag and select
           const { updateProject } = useProjectStore.getState()
-          await updateProject(existingProject.id, { usesFolderStorage: true } as any)
+          await updateProject(existingProject.id, { usesFolderStorage: true })
           await selectProject(existingProject.id)
           toast.info('기존 프로젝트가 선택되었습니다.')
         } else {

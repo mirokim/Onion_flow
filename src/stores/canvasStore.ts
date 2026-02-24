@@ -270,7 +270,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const traverse = (id: string) => {
       if (visited.has(id)) return
       visited.add(id)
-      const incoming = wires.filter(w => w.targetNodeId === id)
+
+      // For switch nodes, only traverse the selected input wire
+      const currentNode = nodes.find(n => n.id === id)
+      let allowedHandles: Set<string> | null = null
+      if (currentNode?.type === 'switch') {
+        const selected = (currentNode.data.selectedInput as number) || 1
+        allowedHandles = new Set([`in_${selected}`])
+      }
+
+      const incoming = wires.filter(w => {
+        if (w.targetNodeId !== id) return false
+        if (allowedHandles && w.targetHandle && !allowedHandles.has(w.targetHandle)) return false
+        return true
+      })
+
       for (const wire of incoming) {
         const sourceNode = nodes.find(n => n.id === wire.sourceNodeId)
         if (sourceNode) {
@@ -286,21 +300,15 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   createDefaultTemplate: async (projectId: string) => {
     const { addNode, connectNodes } = get()
 
-    // 7 nodes: personality, appearance, memory, character, event, storyteller, save_story
-    const personality = await addNode(projectId, 'personality', { x: 0, y: 0 }, { text: '', label: '성격' })
-    const appearance = await addNode(projectId, 'appearance', { x: 0, y: 120 }, { text: '', label: '외모' })
-    const memory = await addNode(projectId, 'memory', { x: 0, y: 240 }, { text: '', label: '기억' })
-    const character = await addNode(projectId, 'character', { x: 280, y: 80 }, { label: 'Character' })
-    const event = await addNode(projectId, 'event', { x: 280, y: 280 }, { text: '', label: 'Event' })
-    const storyteller = await addNode(projectId, 'storyteller', { x: 560, y: 140 }, { provider: null, label: 'AI Storyteller' })
-    const saveStory = await addNode(projectId, 'save_story', { x: 840, y: 140 }, { filename: 'story.md', label: 'Save Story' })
+    // 4 nodes: character, event, storyteller, save_content
+    const character = await addNode(projectId, 'character', { x: 80, y: 40 }, { label: 'Character' })
+    const event = await addNode(projectId, 'event', { x: 80, y: 260 }, { text: '', label: 'Event' })
+    const storyteller = await addNode(projectId, 'storyteller', { x: 400, y: 120 }, { provider: null, label: 'AI Storyteller' })
+    const saveContent = await addNode(projectId, 'save_content', { x: 700, y: 120 }, { filename: 'content.md', label: 'Save Content' })
 
-    // 6 wires
-    await connectNodes(projectId, personality.id, character.id, 'out', 'personality')
-    await connectNodes(projectId, appearance.id, character.id, 'out', 'appearance')
-    await connectNodes(projectId, memory.id, character.id, 'out', 'memory')
+    // 3 wires
     await connectNodes(projectId, character.id, storyteller.id, 'out', 'context')
     await connectNodes(projectId, event.id, storyteller.id, 'out', 'context')
-    await connectNodes(projectId, storyteller.id, saveStory.id, 'out', 'story')
+    await connectNodes(projectId, storyteller.id, saveContent.id, 'out', 'content')
   },
 }))

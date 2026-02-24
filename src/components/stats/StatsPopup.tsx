@@ -57,6 +57,67 @@ function computeOverviewStats() {
   }
 }
 
+/** Embeddable stats content (no modal wrapper) */
+export function StatsContent() {
+  const [activeTab, setActiveTab] = useState<StatsTab>('overview')
+  const chapters = useProjectStore(s => s.chapters)
+  const overview = useMemo(() => computeOverviewStats(), [chapters])
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex gap-1 pb-3">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded transition-colors ${
+              activeTab === tab.id ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-bg-hover'
+            }`}
+          >
+            {tab.icon} {tab.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === 'overview' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <StatCard label="전체 글자 수" value={overview.totalChars.toLocaleString()} unit="자" />
+              <StatCard label="원고지" value={overview.pages200.toLocaleString()} unit="매" />
+              <StatCard label="예상 읽기 시간" value={overview.readingTimeMin.toLocaleString()} unit="분" />
+              <StatCard label="챕터" value={String(overview.chapterCount)} />
+              <StatCard label="권" value={String(overview.volumeCount)} />
+              <StatCard label="평균 챕터 길이" value={overview.avgChapterWords.toLocaleString()} unit="자" />
+            </div>
+            {overview.chapterStats.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-text-secondary">챕터별 글자 수</h3>
+                <div className="space-y-1">
+                  {overview.chapterStats.map((ch, i) => {
+                    const maxWc = Math.max(1, ...overview.chapterStats.map(c => c.wordCount))
+                    return (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs w-20 truncate text-right text-text-secondary">{ch.title}</span>
+                        <div className="flex-1 h-3 bg-bg-hover rounded-sm overflow-hidden">
+                          <div className="h-full bg-blue-500 rounded-sm" style={{ width: `${(ch.wordCount / maxWc) * 100}%` }} />
+                        </div>
+                        <span className="text-xs w-12 text-right text-text-secondary">{ch.wordCount.toLocaleString()}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {activeTab === 'characters' && <CharacterProminence />}
+        {activeTab === 'foreshadows' && <ForeshadowRate />}
+        {activeTab === 'daily' && <DailyGoalChart />}
+      </div>
+    </div>
+  )
+}
+
 export function StatsPopup({ onClose }: StatsPopupProps) {
   const [activeTab, setActiveTab] = useState<StatsTab>('overview')
   const chapters = useProjectStore(s => s.chapters)

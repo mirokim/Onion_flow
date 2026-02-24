@@ -41,7 +41,7 @@ export function resolveCategory(category: string): WorldSettingCategoryValue {
 // ── Wiki Categories ──
 export const WIKI_CATEGORIES = [
   ...WORLD_SETTING_CATEGORIES,
-  'character', 'character_personality', 'character_appearance', 'character_memory',
+  'character', 'character_memory', 'character_motivation',
   'event', 'story',
   'item', 'custom',
 ] as const

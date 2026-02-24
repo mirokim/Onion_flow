@@ -36,6 +36,7 @@ interface ProjectState {
   updateChapter: (id: string, updates: Partial<Chapter>) => Promise<void>
   updateChapterContent: (id: string, content: JSONContent) => Promise<void>
   deleteChapter: (id: string) => Promise<void>
+  duplicateChapter: (id: string) => Promise<Chapter | null>
   undoDeleteChapter: () => Promise<boolean>
   reorderChapter: (id: string, newOrder: number) => Promise<void>
   moveChapter: (id: string, newParentId: string | null) => Promise<void>
@@ -112,6 +113,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const project = await adapter.fetchProject(id)
     if (project) {
       set({ currentProject: project })
+      // Clear undo/redo stacks when switching projects
+      const { useUndoStore } = await import('./undoStore')
+      useUndoStore.getState().clearAll()
       await get().loadChapters(id)
       // Load all world data
       const { useWorldStore } = await import('./worldStore')
@@ -211,6 +215,31 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       chapters: s.chapters.map(c => c.id === id ? { ...c, content, updatedAt: ts } : c),
       currentChapter: s.currentChapter?.id === id ? { ...s.currentChapter, content, updatedAt: ts } : s.currentChapter,
     }))
+  },
+
+  duplicateChapter: async (id: string) => {
+    const adapter = getAdapter()
+    const { currentProject, chapters } = get()
+    if (!currentProject) return null
+    const source = chapters.find(c => c.id === id)
+    if (!source) return null
+
+    const siblings = chapters.filter(c => c.parentId === source.parentId)
+    const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(c => c.order)) : -1
+
+    const copy = createEntity<Chapter>({
+      projectId: currentProject.id,
+      title: `${source.title} (복사본)`,
+      order: maxOrder + 1,
+      parentId: source.parentId,
+      type: source.type,
+      content: source.content,
+      synopsis: source.synopsis,
+      wordCount: source.wordCount,
+    })
+    await adapter.insertChapter(copy)
+    set(s => ({ chapters: [...s.chapters, copy] }))
+    return copy
   },
 
   deleteChapter: async (id: string) => {

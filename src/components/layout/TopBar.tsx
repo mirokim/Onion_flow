@@ -8,21 +8,39 @@ import {
   PanelRightOpen,
   Maximize2,
   FolderOpen,
-  BarChart3,
-  History,
-  Download,
   Settings,
+  Loader2,
+  Check,
 } from 'lucide-react'
+import { useSaveStatusStore } from '@/stores/saveStatusStore'
+
+function TopBarSaveStatus() {
+  const status = useSaveStatusStore(s => s.status)
+  if (status === 'idle') return null
+
+  return (
+    <div className="flex items-center gap-1 px-1" title={
+      status === 'modified' ? '수정됨' : status === 'saving' ? '저장 중...' : '저장됨'
+    }>
+      {status === 'modified' && (
+        <span className="w-2 h-2 rounded-full bg-yellow-500" />
+      )}
+      {status === 'saving' && (
+        <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+      )}
+      {status === 'saved' && (
+        <Check className="w-3.5 h-3.5 text-green-500" />
+      )}
+    </div>
+  )
+}
 
 interface TopBarProps {
-  onToggleStats?: () => void
-  onToggleTimeline?: () => void
-  onToggleExport?: () => void
   onOpenProjectDialog?: () => void
   onOpenSettings?: () => void
 }
 
-export function TopBar({ onToggleStats, onToggleTimeline, onToggleExport, onOpenProjectDialog, onOpenSettings }: TopBarProps) {
+export function TopBar({ onOpenProjectDialog, onOpenSettings }: TopBarProps) {
   const { t } = useTranslation()
   const { currentProject, currentChapter } = useProjectStore()
   const { openTabs, toggleTab, toggleFocusMode, showOpenFilesPanel, toggleOpenFilesPanel } = useEditorStore()
@@ -77,29 +95,7 @@ export function TopBar({ onToggleStats, onToggleTimeline, onToggleExport, onOpen
       </div>
 
       <div className="flex items-center gap-1">
-        <button
-          onClick={onToggleStats}
-          className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
-          title={`${t('stats.title')} (Ctrl+Shift+S)`}
-        >
-          <BarChart3 className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={onToggleTimeline}
-          className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
-          title={`타임라인 (Ctrl+Shift+T)`}
-        >
-          <History className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={onToggleExport}
-          className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
-          title="내보내기"
-        >
-          <Download className="w-4 h-4" />
-        </button>
+        <TopBarSaveStatus />
 
         <button
           onClick={onOpenSettings}

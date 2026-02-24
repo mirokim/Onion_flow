@@ -351,6 +351,61 @@ function runMigrations(db: Database): void {
         `ALTER TABLE characters ADD COLUMN position TEXT NOT NULL DEFAULT 'neutral'`,
       ],
     },
+    {
+      name: 'add_trash_table',
+      sql: [
+        `CREATE TABLE IF NOT EXISTS trash (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          entity_data TEXT NOT NULL,
+          related_data TEXT,
+          deleted_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_trash_project ON trash(project_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_trash_expires ON trash(expires_at)`,
+      ],
+    },
+    {
+      name: 'add_character_extended_fields',
+      sql: [
+        `ALTER TABLE characters ADD COLUMN age TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN job TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN affiliation TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN logline TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN archetype TEXT NOT NULL DEFAULT 'other'`,
+        `ALTER TABLE characters ADD COLUMN signature_item TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN habits TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN status TEXT NOT NULL DEFAULT 'alive'`,
+        `ALTER TABLE characters ADD COLUMN current_location TEXT NOT NULL DEFAULT ''`,
+      ],
+    },
+    {
+      name: 'add_character_motivation_fields',
+      sql: [
+        `ALTER TABLE characters ADD COLUMN desire TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN deficiency TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN fear TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN secret TEXT NOT NULL DEFAULT ''`,
+        `ALTER TABLE characters ADD COLUMN "values" TEXT NOT NULL DEFAULT ''`,
+      ],
+    },
+    {
+      name: 'cleanup_deprecated_nodes',
+      sql: [
+        `DELETE FROM canvas_wires WHERE source_node_id IN (SELECT id FROM canvas_nodes WHERE type IN ('personality', 'appearance')) OR target_node_id IN (SELECT id FROM canvas_nodes WHERE type IN ('personality', 'appearance'))`,
+        `DELETE FROM canvas_nodes WHERE type IN ('personality', 'appearance')`,
+      ],
+    },
+    {
+      name: 'add_project_folder_path',
+      sql: [
+        `ALTER TABLE projects ADD COLUMN folder_path TEXT`,
+        `ALTER TABLE projects ADD COLUMN uses_folder_storage INTEGER NOT NULL DEFAULT 0`,
+      ],
+    },
   ]
 
   for (const migration of migrations) {

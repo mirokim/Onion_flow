@@ -5,10 +5,18 @@ import { useCanvasStore } from '@/stores/canvasStore'
 import { useSaveStatusStore } from '@/stores/saveStatusStore'
 import { formatNumber } from '@/lib/utils'
 
+function formatSaveTime(ts: number | null): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const h = d.getHours().toString().padStart(2, '0')
+  const m = d.getMinutes().toString().padStart(2, '0')
+  const s = d.getSeconds().toString().padStart(2, '0')
+  return `${h}:${m}:${s}`
+}
+
 function SaveStatusIndicator() {
   const status = useSaveStatusStore(s => s.status)
-
-  if (status === 'idle') return null
+  const lastSavedAt = useSaveStatusStore(s => s.lastSavedAt)
 
   return (
     <>
@@ -29,6 +37,11 @@ function SaveStatusIndicator() {
         <span className="text-green-500/80 flex items-center gap-1">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500/80" />
           저장됨
+        </span>
+      )}
+      {(status === 'idle' || status === 'modified') && lastSavedAt && (
+        <span className="text-text-muted/50" title={new Date(lastSavedAt).toLocaleString()}>
+          마지막 저장 {formatSaveTime(lastSavedAt)}
         </span>
       )}
     </>

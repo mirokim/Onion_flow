@@ -74,6 +74,11 @@ export const useWikiStore = create<WikiState>((set, get) => ({
   },
 
   deleteEntry: async (id) => {
+    const entry = get().entries.find(e => e.id === id)
+    if (entry) {
+      const { useTrashStore } = await import('./trashStore')
+      await useTrashStore.getState().moveToTrash(entry.projectId, 'wiki_entry', entry.id, entry)
+    }
     await getAdapter().deleteWikiEntry(id)
     set(s => ({
       entries: s.entries.filter(e => e.id !== id),

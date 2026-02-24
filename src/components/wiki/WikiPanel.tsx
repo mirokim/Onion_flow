@@ -3,20 +3,23 @@ import { Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useWikiStore } from '@/stores/wikiStore'
 import { useProjectStore } from '@/stores/projectStore'
+import { createEntryWithUndo } from '@/stores/undoWikiActions'
 import type { WikiCategory } from '@/types'
 import { PanelTabBar, type PanelDragHandlers } from '@/components/layout/PanelTabBar'
 import { useEditorStore } from '@/stores/editorStore'
 import { WikiSearch } from './WikiSearch'
 import { WikiCategoryList, WIKI_CATEGORY_GROUPS, WIKI_CATEGORIES } from './WikiCategoryList'
+import { WikiTableView } from './WikiTableView'
 import { WikiEntryEditor } from './WikiEntryEditor'
 import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
 
 interface WikiPanelProps {
   panelDragHandlers?: PanelDragHandlers
+  isGrouped?: boolean
 }
 
-export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
+export function WikiPanel({ panelDragHandlers, isGrouped }: WikiPanelProps) {
   const { t } = useTranslation()
   const { currentProject } = useProjectStore()
   const {
@@ -49,7 +52,7 @@ export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
 
   const handleAddEntry = async (category: WikiCategory) => {
     if (!currentProject) return
-    const entry = await createEntry(currentProject.id, category, '')
+    const entry = await createEntryWithUndo(currentProject.id, category, '')
     selectEntry(entry.id)
     setShowCategoryPicker(false)
   }
@@ -66,23 +69,53 @@ export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header — PanelTabBar for consistency */}
-      <PanelTabBar
-        tabs={[{ id: 'wiki', label: t('wiki.title'), isPinned: pinnedPanels.includes('wiki') }]}
-        activeTabId="wiki"
-        onSelect={() => {}}
-        onClose={() => toggleTab('wiki')}
-        onTogglePin={() => togglePanelPin('wiki')}
-        panelDragHandlers={panelDragHandlers}
-        actions={
+      {/* Header — PanelTabBar (hidden when grouped) */}
+      {!isGrouped && (
+        <PanelTabBar
+          tabs={[{ id: 'wiki', label: t('wiki.title'), isPinned: pinnedPanels.includes('wiki') }]}
+          activeTabId="wiki"
+          onSelect={() => {}}
+          onClose={() => toggleTab('wiki')}
+          onTogglePin={() => togglePanelPin('wiki')}
+          panelDragHandlers={panelDragHandlers}
+          panelType="wiki"
+          onDuplicateTab={() => useEditorStore.getState().splitTabToNewGroup('wiki')}
+          actions={
+            <>
+              <button
+                ref={addBtnRef}
+                onClick={() => setShowCategoryPicker(!showCategoryPicker)}
+                className="p-1 rounded hover:bg-bg-hover text-text-secondary"
+                title={t('common.add')}
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              {showCategoryPicker && (
+                <CategoryPicker
+                  anchorRef={addBtnRef}
+                  onSelect={handleAddEntry}
+                  onClose={() => setShowCategoryPicker(false)}
+                />
+              )}
+            </>
+          }
+        />
+      )}
+
+      {/* Search + add button (inline when grouped) */}
+      <div className="flex items-center gap-1 px-3 py-2">
+        <div className="flex-1">
+          <WikiSearch />
+        </div>
+        {isGrouped && (
           <>
             <button
               ref={addBtnRef}
               onClick={() => setShowCategoryPicker(!showCategoryPicker)}
-              className="p-1 rounded hover:bg-bg-hover text-text-secondary"
+              className="shrink-0 p-1 rounded hover:bg-bg-hover text-text-secondary"
               title={t('common.add')}
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4" />
             </button>
             {showCategoryPicker && (
               <CategoryPicker
@@ -92,12 +125,7 @@ export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
               />
             )}
           </>
-        }
-      />
-
-      {/* Search */}
-      <div className="px-3 py-2">
-        <WikiSearch />
+        )}
       </div>
 
       {/* Categories */}
@@ -105,46 +133,11 @@ export function WikiPanel({ panelDragHandlers }: WikiPanelProps) {
         <WikiCategoryList entryCounts={entryCounts} />
       </div>
 
-      {/* Entry list */}
-      <div className="flex-1 overflow-y-auto">
-        {filteredEntries.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-text-muted text-xs">
-            {entries.length === 0 ? 'No wiki entries yet' : 'No matches'}
-          </div>
-        ) : (
-          <div className="flex flex-col">
-            {filteredEntries.map(entry => (
-              <button
-                key={entry.id}
-                onClick={() => selectEntry(entry.id)}
-                className={cn(
-                  'flex flex-col gap-0.5 px-3 py-2 text-left border-b border-border/50 transition',
-                  'hover:bg-bg-hover',
-                )}
-              >
-                <span className="text-xs font-medium text-text-primary truncate">
-                  {entry.title || 'Untitled'}
-                </span>
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-text-muted">
-                    {entry.category}
-                  </span>
-                  {entry.tags.length > 0 && (
-                    <span className="text-[10px] text-accent">
-                      +{entry.tags.length} tags
-                    </span>
-                  )}
-                </div>
-                {entry.content && (
-                  <span className="text-[10px] text-text-muted truncate">
-                    {entry.content.slice(0, 60)}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Entry table */}
+      <WikiTableView
+        entries={filteredEntries}
+        onSelect={(id) => selectEntry(id)}
+      />
     </div>
   )
 }
@@ -180,7 +173,7 @@ function CategoryPicker({ anchorRef, onSelect, onClose }: {
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div className="fixed z-50 w-48 bg-bg-surface border border-border rounded-lg shadow-xl overflow-hidden" style={{ top, right }}>
-        <div className="max-h-72 overflow-y-auto py-1">
+        <div className="max-h-[576px] overflow-y-auto py-1">
           {/* Recent categories */}
           {recentCategories.length > 0 && (
             <>

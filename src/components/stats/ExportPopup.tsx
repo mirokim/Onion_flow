@@ -12,6 +12,60 @@ interface ExportPopupProps {
   onClose: () => void
 }
 
+/** Embeddable export content (no modal wrapper) */
+export function ExportContent() {
+  const chapters = useProjectStore(s => s.chapters)
+
+  const handleExport = (templateId: string) => {
+    const chapterCount = chapters.filter(ch => ch.type === 'chapter').length
+    if (chapterCount === 0) {
+      toast.warning('내보낼 챕터가 없습니다.')
+      return
+    }
+
+    switch (templateId) {
+      case 'munpia':
+        exportForMunpia(chapters)
+        toast.success('문피아 형식으로 내보냈습니다.')
+        break
+      case 'series':
+        exportForSeries(chapters, 6000)
+        toast.success('시리즈 형식으로 내보냈습니다.')
+        break
+      case 'kakaopage':
+        exportForSeries(chapters, 5000)
+        toast.success('카카오페이지 형식으로 내보냈습니다.')
+        break
+      case 'plain':
+        exportForSeries(chapters, 0)
+        toast.success('텍스트 파일로 내보냈습니다.')
+        break
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {PLATFORM_TEMPLATES.map(template => (
+        <button
+          key={template.id}
+          onClick={() => handleExport(template.id)}
+          className="w-full text-left p-3 rounded-lg border border-border hover:border-blue-500/50 hover:bg-blue-500/5 transition-colors"
+        >
+          <div className="text-sm font-medium">{template.name}</div>
+          <div className="text-xs text-text-secondary mt-0.5">
+            {template.description}
+          </div>
+          {template.maxCharsPerChapter > 0 && (
+            <div className="text-xs text-text-secondary mt-1">
+              최대 {template.maxCharsPerChapter.toLocaleString()}자/회
+            </div>
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function ExportPopup({ onClose }: ExportPopupProps) {
   const chapters = useProjectStore(s => s.chapters)
 

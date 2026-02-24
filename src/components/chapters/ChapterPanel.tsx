@@ -107,9 +107,10 @@ function ChapterTreeNode({
 
 interface ChapterPanelProps {
   panelDragHandlers?: PanelDragHandlers
+  isGrouped?: boolean
 }
 
-export function ChapterPanel({ panelDragHandlers }: ChapterPanelProps) {
+export function ChapterPanel({ panelDragHandlers, isGrouped }: ChapterPanelProps) {
   const currentProject = useProjectStore(s => s.currentProject)
   const currentChapter = useProjectStore(s => s.currentChapter)
   const chapters = useProjectStore(s => s.chapters)
@@ -120,11 +121,22 @@ export function ChapterPanel({ panelDragHandlers }: ChapterPanelProps) {
   const toggleExpanded = useProjectStore(s => s.toggleExpanded)
 
   const toggleTab = useEditorStore(s => s.toggleTab)
+  const activatePanel = useEditorStore(s => s.activatePanel)
+  const openTabs = useEditorStore(s => s.openTabs)
   const pinnedPanels = useEditorStore(s => s.pinnedPanels)
   const togglePanelPin = useEditorStore(s => s.togglePanelPin)
   const [showTemplates, setShowTemplates] = useState(false)
 
   const tree = getChapterTree()
+
+  /** Select a chapter and ensure editor panel is visible */
+  const handleSelectChapter = useCallback((id: string) => {
+    selectChapter(id)
+    // Make editor panel visible in its group
+    if (openTabs.includes('editor')) {
+      activatePanel('editor')
+    }
+  }, [selectChapter, openTabs, activatePanel])
 
   const handleAddChapter = useCallback(async () => {
     if (!currentProject) {
@@ -174,40 +186,71 @@ export function ChapterPanel({ panelDragHandlers }: ChapterPanelProps) {
 
   return (
     <div className="flex flex-col h-full bg-bg-primary">
-      {/* Header — PanelTabBar for consistency */}
-      <PanelTabBar
-        tabs={[{ id: 'chapters', label: '볼륨/챕터', isPinned: pinnedPanels.includes('chapters') }]}
-        activeTabId="chapters"
-        onSelect={() => {}}
-        onClose={() => toggleTab('chapters')}
-        onTogglePin={() => togglePanelPin('chapters')}
-        panelDragHandlers={panelDragHandlers}
-        actions={
-          <>
-            <button
-              onClick={() => setShowTemplates(!showTemplates)}
-              className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
-              title="템플릿"
-            >
-              <LayoutTemplate className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={handleAddVolume}
-              className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
-              title="볼륨 추가"
-            >
-              <FolderPlus className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={handleAddChapter}
-              className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
-              title="챕터 추가"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-          </>
-        }
-      />
+      {/* Header — PanelTabBar (hidden when grouped) */}
+      {!isGrouped && (
+        <PanelTabBar
+          tabs={[{ id: 'chapters', label: '볼륨/챕터', isPinned: pinnedPanels.includes('chapters') }]}
+          activeTabId="chapters"
+          onSelect={() => {}}
+          onClose={() => toggleTab('chapters')}
+          onTogglePin={() => togglePanelPin('chapters')}
+          panelDragHandlers={panelDragHandlers}
+          panelType="chapters"
+          onDuplicateTab={() => useEditorStore.getState().splitTabToNewGroup('chapters')}
+          actions={
+            <>
+              <button
+                onClick={() => setShowTemplates(!showTemplates)}
+                className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
+                title="템플릿"
+              >
+                <LayoutTemplate className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleAddVolume}
+                className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
+                title="볼륨 추가"
+              >
+                <FolderPlus className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleAddChapter}
+                className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
+                title="챕터 추가"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </>
+          }
+        />
+      )}
+
+      {/* Inline action buttons when grouped (no separate header row) */}
+      {isGrouped && (
+        <div className="flex items-center justify-end gap-1 px-2 py-1 shrink-0">
+          <button
+            onClick={() => setShowTemplates(!showTemplates)}
+            className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
+            title="템플릿"
+          >
+            <LayoutTemplate className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleAddVolume}
+            className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
+            title="볼륨 추가"
+          >
+            <FolderPlus className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleAddChapter}
+            className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
+            title="챕터 추가"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Template picker */}
       {showTemplates && (
@@ -241,7 +284,7 @@ export function ChapterPanel({ panelDragHandlers }: ChapterPanelProps) {
               item={item}
               depth={0}
               selectedId={currentChapter?.id || null}
-              onSelect={selectChapter}
+              onSelect={handleSelectChapter}
               onDelete={handleDelete}
               onToggle={toggleExpanded}
             />

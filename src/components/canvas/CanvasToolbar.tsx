@@ -20,7 +20,7 @@ const CATEGORIES: { key: CanvasNodeCategory; label: string }[] = [
   { key: 'detector', label: 'Detector' },
   { key: 'output', label: 'Output' },
   { key: 'structure', label: 'Structure' },
-  { key: 'plot', label: 'Plot' },
+  { key: 'plot', label: '플롯 애드온' },
 ]
 
 export function CanvasToolbar({ onAddNode }: CanvasToolbarProps) {

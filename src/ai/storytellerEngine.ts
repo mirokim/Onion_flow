@@ -15,6 +15,7 @@ import { useProjectStore } from '@/stores/projectStore'
 import { useAIStore } from '@/stores/aiStore'
 import { callWithTools, type ProviderResponse } from './providers'
 import { summarizeContext } from './contextSummarizer'
+import { PLOT_GENRE_OPTIONS, PLOT_STRUCTURE_OPTIONS } from '@nodes/index'
 import type { CanvasNode, AIProvider, AIAttachment } from '@/types'
 
 interface PromptSegment {
@@ -88,28 +89,42 @@ function processNode(node: CanvasNode): PromptSegment | null {
       }
     }
     case 'pov': {
-      const perspective = node.data.perspective as string || '3인칭'
-      const focusChar = node.data.focusCharacter as string || ''
+      const povTypes: Record<string, string> = {
+        first: '1인칭', second: '2인칭',
+        third_limited: '3인칭 제한', third_omniscient: '3인칭 전지적',
+      }
+      const povType = node.data.povType as string || 'third_limited'
+      const povLabel = povTypes[povType] || povType
+      const charId = node.data.characterId as string | undefined
+      const focusChar = charId
+        ? wikiEntries.find(e => e.id === charId)?.title
+        : undefined
       return {
         role: 'direction',
-        content: `[시점 제어]\n시점: ${perspective}${focusChar ? `\n초점 캐릭터: ${focusChar}` : ''}`,
+        content: `[시점 제어]\n시점: ${povLabel}${focusChar ? `\n초점 캐릭터: ${focusChar}` : ''}`,
         priority: 7,
       }
     }
     case 'pacing': {
       const tension = node.data.tension as number || 5
-      const pace = node.data.pace as string || '보통'
+      const speedLabels: Record<string, string> = { slow: '느림', normal: '보통', fast: '빠름' }
+      const speed = node.data.speed as string || 'normal'
       return {
         role: 'direction',
-        content: `[텐션/호흡]\n긴장감: ${tension}/10\n호흡: ${pace}`,
+        content: `[텐션/호흡]\n긴장감: ${tension}/10\n호흡: ${speedLabels[speed] || speed}`,
         priority: 7,
       }
     }
     case 'style_transfer': {
-      const style = node.data.styleSample as string || ''
+      const sampleText = node.data.sampleText as string || ''
+      const authorName = node.data.authorName as string || ''
+      const parts: string[] = ['[문체 학습]']
+      if (authorName) parts.push(`참고 작가: ${authorName}`)
+      if (sampleText) parts.push(`다음 문체를 참고하여 작성:\n${sampleText}`)
+      if (parts.length <= 1) return null
       return {
         role: 'direction',
-        content: `[문체 학습]\n다음 문체를 참고하여 작성:\n${style}`,
+        content: parts.join('\n'),
         priority: 6,
       }
     }
@@ -128,6 +143,15 @@ function processNode(node: CanvasNode): PromptSegment | null {
       return {
         role: 'character_context',
         content: `[외모 설정]\n${entry.content}`,
+        priority: 10,
+      }
+    }
+    case 'motivation': {
+      const entry = findWikiEntry('motivation')
+      if (!entry) return null
+      return {
+        role: 'character_context',
+        content: `[캐릭터 동기]\n${entry.content}`,
         priority: 10,
       }
     }
@@ -164,8 +188,34 @@ function processNode(node: CanvasNode): PromptSegment | null {
       }
     }
     case 'plot_context': {
-      // plot_context aggregates connected plot nodes via upstream traversal
-      return null
+      // Unified plot node: genre + structure + wiki entry
+      const parts: string[] = []
+      const genreId = node.data.selectedGenre as string | undefined
+      if (genreId) {
+        const opt = PLOT_GENRE_OPTIONS.find(o => o.id === genreId)
+        if (opt) {
+          parts.push(`[플롯 장르: ${opt.label} (${opt.labelEn})]`)
+          parts.push(opt.description)
+        }
+      }
+      const structId = node.data.selectedStructure as string | undefined
+      if (structId) {
+        const opt = PLOT_STRUCTURE_OPTIONS.find(o => o.id === structId)
+        if (opt) {
+          parts.push(`[플롯 형식: ${opt.label} (${opt.labelEn})]`)
+          parts.push(opt.description)
+        }
+      }
+      const plotWikiId = node.data.wikiEntryId as string | undefined
+      if (plotWikiId) {
+        const plotEntry = wikiEntries.find(e => e.id === plotWikiId)
+        if (plotEntry) {
+          parts.push(`[플롯 상세: ${plotEntry.title}]`)
+          if (plotEntry.content) parts.push(plotEntry.content)
+        }
+      }
+      if (parts.length === 0) return null
+      return { role: 'plot_context', content: parts.join('\n'), priority: 9 }
     }
     default:
       return null

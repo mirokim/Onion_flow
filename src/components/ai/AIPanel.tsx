@@ -16,9 +16,10 @@ import { useEditorStore } from '@/stores/editorStore'
 
 interface AIPanelProps {
   panelDragHandlers?: PanelDragHandlers
+  isGrouped?: boolean
 }
 
-export function AIPanel({ panelDragHandlers }: AIPanelProps) {
+export function AIPanel({ panelDragHandlers, isGrouped }: AIPanelProps) {
   const { t } = useTranslation()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showSidebar, setShowSidebar] = useState(false)
@@ -88,44 +89,47 @@ export function AIPanel({ panelDragHandlers }: AIPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header — PanelTabBar for consistency */}
-      <PanelTabBar
-        tabs={[{ id: 'ai', label: t('ai.title', 'AI 어시스턴트'), isPinned: pinnedPanels.includes('ai') }]}
-        activeTabId="ai"
-        onSelect={() => {}}
-        onClose={() => toggleTab('ai')}
-        onTogglePin={() => togglePanelPin('ai')}
-        panelDragHandlers={panelDragHandlers}
-        actions={
-          <>
-            {activeProviders.length === 0 && (
-              <span className="text-[10px] text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">
-                {t('ai.noProvider', 'API 키 필요')}
-              </span>
-            )}
-            {activeProviders.length > 1 && (
+      {/* Header — PanelTabBar (hidden when grouped) */}
+      {!isGrouped && (
+        <PanelTabBar
+          tabs={[{ id: 'ai', label: t('ai.title', 'AI 어시스턴트'), isPinned: pinnedPanels.includes('ai') }]}
+          activeTabId="ai"
+          onSelect={() => {}}
+          onClose={() => toggleTab('ai')}
+          onTogglePin={() => togglePanelPin('ai')}
+          panelDragHandlers={panelDragHandlers}
+          panelType="ai"
+          actions={
+            <>
+              {activeProviders.length === 0 && (
+                <span className="text-[10px] text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">
+                  {t('ai.noProvider', 'API 키 필요')}
+                </span>
+              )}
+              {activeProviders.length > 1 && (
+                <button
+                  onClick={() => setTripleMode(!tripleMode)}
+                  className={cn(
+                    'p-1 rounded transition text-xs flex items-center gap-1',
+                    tripleMode ? 'text-accent' : 'text-text-muted hover:text-text-primary',
+                  )}
+                  title={t('ai.tripleMode', '트리플 모드')}
+                >
+                  {tripleMode ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                  <span className="text-[10px]">Triple</span>
+                </button>
+              )}
               <button
-                onClick={() => setTripleMode(!tripleMode)}
-                className={cn(
-                  'p-1 rounded transition text-xs flex items-center gap-1',
-                  tripleMode ? 'text-accent' : 'text-text-muted hover:text-text-primary',
-                )}
-                title={t('ai.tripleMode', '트리플 모드')}
+                onClick={() => setShowSidebar(!showSidebar)}
+                className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
+                title={t('ai.conversations', '대화 목록')}
               >
-                {tripleMode ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                <span className="text-[10px]">Triple</span>
+                <MessageSquare className="w-4 h-4" />
               </button>
-            )}
-            <button
-              onClick={() => setShowSidebar(!showSidebar)}
-              className="p-1 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
-              title={t('ai.conversations', '대화 목록')}
-            >
-              <MessageSquare className="w-4 h-4" />
-            </button>
-          </>
-        }
-      />
+            </>
+          }
+        />
+      )}
 
       {/* Conversation sidebar */}
       {showSidebar && (

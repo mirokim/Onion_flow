@@ -1,6 +1,15 @@
 /**
  * SQLite-based StorageAdapter using sql.js (WASM).
- * Persists the database to IndexedDB automatically — no user permission required.
+ *
+ * Persistence architecture (dual-layer):
+ *   PRIMARY:  Project folder (storyflow.json + .md) — via folderSaveScheduler
+ *   BACKUP:   IndexedDB snapshot — for data safety & fallback
+ *
+ * Every data change (_markDirty) triggers both:
+ *   1. IndexedDB backup (2s debounce)
+ *   2. Folder save via scheduleFolderSave() (3s debounce)
+ *
+ * On startup, folder data is loaded first if available.
  *
  * Heavy logic has been extracted to domain modules under ./adapter/:
  *   - schema.ts: DDL & migrations
@@ -35,18 +44,21 @@ import type {
   WorldSetting, Foreshadow, Item, ReferenceData,
   EntityVersion, AIConversation, AIMessage, OnionNode,
   CanvasNode, CanvasWire, WikiEntry, EmotionLog, StorySummary, DailyStats, TimelineSnapshot,
+  TrashItem,
 } from '@/types'
 import type { StorageAdapter } from './storageAdapter'
 import { sanitizeRecord } from './backup'
 import { nowUTC } from '@/lib/dateUtils'
 
 // ── Extracted modules ──
+import { scheduleFolderSave, saveNowToFolder } from '@/lib/folderSaveScheduler'
 import { createTables } from './adapter/schema'
 import {
   ts, parseJsonArray,
   rowToProject, rowToChapter, rowToCharacter, rowToRelation,
   rowToWorldSetting, rowToItem, rowToReferenceData, rowToForeshadow,
   rowToEntityVersion, rowToConversation, rowToMessage, rowToOnionNode,
+  rowToTrashItem,
 } from './adapter/rowMappers'
 import {
   loadDatabaseFromIDB, saveDatabaseToIDB, deleteFromIDB, getAutoBackupKeys,
@@ -58,9 +70,8 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   private db: Database | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
   private dirty = false
-  // IndexedDB is now a backup-only store; primary persistence is folder-based (3 files).
-  // Reduced from 500ms to 10s since IndexedDB writes are supplementary snapshots.
-  private DEBOUNCE_MS = 10_000
+  // Persist debounce: 2 seconds for responsive data safety
+  private DEBOUNCE_MS = 2_000
   private initialized = false
   /** File path for Electron file-based persistence (null = use IndexedDB fallback) */
   private _filePath: string | null = null
@@ -76,7 +87,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   /** Register page lifecycle handlers for data safety */
   private _registerLifecycleHandlers(): void {
-    // Save on page unload (best-effort sync persist)
+    // Save on page unload (best-effort sync persist to IndexedDB backup)
     window.addEventListener('beforeunload', () => {
       if (this.dirty && this.db) {
         this._persistSync()
@@ -88,30 +99,42 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && this.dirty && this.db) {
         this._persist()
+        // Also save to folder (primary persistence)
+        saveNowToFolder()
       }
     })
   }
 
   // ── Init ──
 
-  /** Initialize: always start fresh — folder-based projects are reloaded on demand */
+  /** Initialize: load existing database from IndexedDB, or create fresh if none exists */
   async init(): Promise<void> {
     if (this.initialized) return
     this.initialized = true
 
     const SQL = await loadSqlJs()
 
-    // Clear stale IndexedDB data — folder-based projects will be reloaded via "폴더 열기"
-    await deleteFromIDB('onion-main-db')
-    const backupKeys = await getAutoBackupKeys()
-    for (const key of backupKeys) {
-      await deleteFromIDB(key)
+    // Try to load existing database from IndexedDB
+    const existingData = await loadDatabaseFromIDB()
+    if (existingData && existingData.byteLength > 0) {
+      try {
+        this.db = new SQL.Database(existingData)
+        // Run migrations to ensure schema is up to date
+        createTables(this.db)
+        console.log('[SQLite] Loaded existing database from IndexedDB')
+      } catch (err) {
+        console.warn('[SQLite] Failed to load existing database, creating fresh:', err)
+        this.db = new SQL.Database()
+        createTables(this.db)
+        await this._persist()
+      }
+    } else {
+      // No existing data — create fresh database
+      this.db = new SQL.Database()
+      createTables(this.db)
+      await this._persist()
+      console.log('[SQLite] Created new database (no existing data found)')
     }
-    console.log('[SQLite] Cleared IndexedDB — starting fresh')
-
-    this.db = new SQL.Database()
-    createTables(this.db)
-    await this._persist()
 
     this.startAutoBackup()
     this._registerLifecycleHandlers()
@@ -213,6 +236,8 @@ export class SQLiteStorageAdapter implements StorageAdapter {
   private _markDirty() {
     this.dirty = true
     this._scheduleSave()
+    // Also schedule folder save (file system = primary persistence)
+    scheduleFolderSave()
   }
 
   private _scheduleSave() {
@@ -245,7 +270,10 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this.dirty = false
     const data = this.db.export()
 
-    // Electron file-based persistence
+    // Always save to IndexedDB as backup snapshot
+    await saveDatabaseToIDB(data)
+
+    // Additionally save to file if configured (Electron .db file)
     if (this._filePath && this._isElectron()) {
       const result = await window.electronAPI!.writeDatabase(this._filePath, data)
       if (!result.success) {
@@ -254,7 +282,7 @@ export class SQLiteStorageAdapter implements StorageAdapter {
       return
     }
 
-    // Web File System Access API persistence
+    // Web File System Access API (.db file)
     if (this._fileHandle) {
       try {
         const writable = await this._fileHandle.createWritable()
@@ -264,14 +292,8 @@ export class SQLiteStorageAdapter implements StorageAdapter {
         console.error('[SQLite] Failed to save via File System Access API:', err)
         // Clear stale file handle to prevent repeated errors
         this._fileHandle = null
-        // Fall back to IndexedDB if file write fails
-        await saveDatabaseToIDB(data)
       }
-      return
     }
-
-    // Web fallback: IndexedDB
-    await saveDatabaseToIDB(data)
   }
 
   private _persistSync(): void {
@@ -280,23 +302,18 @@ export class SQLiteStorageAdapter implements StorageAdapter {
     this.dirty = false
     const data = this.db.export()
 
-    // Electron file-based persistence (async but best-effort)
+    // Always save to IndexedDB as backup (fire-and-forget)
+    saveDatabaseToIDB(data)
+
+    // Additionally save to file if configured
     if (this._filePath && this._isElectron()) {
       window.electronAPI!.writeDatabase(this._filePath, data)
-      return
-    }
-
-    // Web File System Access API (async but best-effort)
-    if (this._fileHandle) {
+    } else if (this._fileHandle) {
       this._fileHandle.createWritable().then(async (writable) => {
         await writable.write(new Uint8Array(data) as BlobPart)
         await writable.close()
-      }).catch(() => saveDatabaseToIDB(data))
-      return
+      }).catch(() => { /* IndexedDB backup already done above */ })
     }
-
-    // Web fallback: IndexedDB
-    saveDatabaseToIDB(data)
   }
 
   /**
@@ -422,10 +439,11 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async insertProject(project: Project): Promise<void> {
     this._run(
-      `INSERT OR REPLACE INTO projects (id, title, description, genre, synopsis, settings, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO projects (id, title, description, genre, synopsis, settings, folder_path, uses_folder_storage, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [project.id, project.title, project.description, project.genre, project.synopsis,
-       JSON.stringify(project.settings), project.createdAt, project.updatedAt]
+       JSON.stringify(project.settings), project.folderPath || null,
+       project.usesFolderStorage ? 1 : 0, project.createdAt, project.updatedAt]
     )
   }
 
@@ -500,10 +518,17 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async insertCharacter(character: Character): Promise<void> {
     this._run(
-      `INSERT OR REPLACE INTO characters (id, project_id, name, aliases, role, position, personality, abilities, appearance, background, motivation, speech_pattern, image_url, tags, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO characters (id, project_id, name, aliases, role, position, age, job, affiliation, logline, archetype, signature_item, habits, status, current_location, desire, deficiency, fear, secret, "values", personality, abilities, appearance, background, motivation, speech_pattern, image_url, tags, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [character.id, character.projectId, character.name, JSON.stringify(character.aliases),
-       character.role, character.position || 'neutral', character.personality, character.abilities, character.appearance,
+       character.role, character.position || 'neutral',
+       character.age || '', character.job || '', character.affiliation || '',
+       character.logline || '', character.archetype || 'other',
+       character.signatureItem || '', character.habits || '',
+       character.status || 'alive', character.currentLocation || '',
+       character.desire || '', character.deficiency || '', character.fear || '',
+       character.secret || '', character.values || '',
+       character.personality, character.abilities, character.appearance,
        character.background, character.motivation, character.speechPattern, character.imageUrl,
        JSON.stringify(character.tags), character.notes, character.createdAt, character.updatedAt]
     )
@@ -1209,5 +1234,39 @@ export class SQLiteStorageAdapter implements StorageAdapter {
 
   async deleteTimelineSnapshotsByProject(projectId: string): Promise<void> {
     this._run('DELETE FROM timeline_snapshots WHERE project_id = ?', [projectId])
+  }
+
+  // ── Trash / Recycle Bin ──
+
+  async fetchTrashItems(projectId: string): Promise<TrashItem[]> {
+    return this._queryAll('SELECT * FROM trash WHERE project_id = ? ORDER BY deleted_at DESC', [projectId])
+      .map((r: any) => rowToTrashItem(r))
+  }
+
+  async insertTrashItem(item: TrashItem): Promise<void> {
+    this._run(
+      `INSERT OR REPLACE INTO trash (id, project_id, entity_type, entity_id, entity_data, related_data, deleted_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [item.id, item.projectId, item.entityType, item.entityId,
+       JSON.stringify(item.entityData), item.relatedData ? JSON.stringify(item.relatedData) : null,
+       item.deletedAt, item.expiresAt]
+    )
+  }
+
+  async deleteTrashItem(id: string): Promise<void> {
+    this._run('DELETE FROM trash WHERE id = ?', [id])
+  }
+
+  async purgeExpiredTrash(): Promise<number> {
+    const now = nowUTC()
+    const expired = this._queryAll<{ id: string }>('SELECT id FROM trash WHERE expires_at <= ?', [now])
+    for (const row of expired) {
+      this._run('DELETE FROM trash WHERE id = ?', [row.id])
+    }
+    return expired.length
+  }
+
+  async deleteTrashByProject(projectId: string): Promise<void> {
+    this._run('DELETE FROM trash WHERE project_id = ?', [projectId])
   }
 }
