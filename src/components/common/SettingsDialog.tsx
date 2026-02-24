@@ -1,20 +1,30 @@
 /**
- * SettingsDialog - Application settings with tabs for General and AI Configuration.
+ * SettingsDialog - Unified Obsidian-style settings panel.
+ * Left sidebar navigation + right content area.
+ * Combines tools (Stats, Timeline, Export, Trash) and settings (General, AI).
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Eye, EyeOff, Sun, Moon, MonitorSmartphone, Globe, Info } from 'lucide-react'
+import {
+  X, Eye, EyeOff, Sun, Moon, MonitorSmartphone, Globe, Info,
+  BarChart3, History, Download, Trash2, Settings, Cpu,
+} from 'lucide-react'
 import { useEditorStore, type Theme, type Language } from '@/stores/editorStore'
 import { useAIStore } from '@/stores/aiStore'
 import type { AIProvider } from '@/types'
 import { cn } from '@/lib/utils'
+import { StatsContent } from '@/components/stats/StatsPopup'
+import { ExportContent } from '@/components/stats/ExportPopup'
+import { TimelineContent } from '@/components/version/TimelinePanel'
+import { TrashContent } from '@/components/common/TrashPanel'
+
+export type SettingsSection = 'stats' | 'timeline' | 'export' | 'trash' | 'general' | 'ai'
 
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
+  initialSection?: SettingsSection
 }
-
-type SettingsTab = 'general' | 'ai'
 
 const PROVIDER_INFO: { key: AIProvider; label: string; description: string; defaultModels: string[] }[] = [
   {
@@ -62,13 +72,38 @@ const LANGUAGE_OPTIONS: { key: Language; label: string; flag: string }[] = [
 
 const APP_VERSION = '0.1.0'
 
-export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
+interface SidebarItem {
+  id: SettingsSection
+  labelKo: string
+  icon: React.ComponentType<{ className?: string }>
+}
+
+const TOOL_SECTIONS: SidebarItem[] = [
+  { id: 'stats', labelKo: '통계', icon: BarChart3 },
+  { id: 'timeline', labelKo: '타임라인', icon: History },
+  { id: 'export', labelKo: '내보내기', icon: Download },
+  { id: 'trash', labelKo: '휴지통', icon: Trash2 },
+]
+
+const SETTINGS_SECTIONS: SidebarItem[] = [
+  { id: 'general', labelKo: '일반', icon: Settings },
+  { id: 'ai', labelKo: 'AI 설정', icon: Cpu },
+]
+
+export function SettingsDialog({ open, onClose, initialSection }: SettingsDialogProps) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection || 'general')
   const [showApiKeys, setShowApiKeys] = useState<Record<string, boolean>>({})
 
   const { theme, setTheme, language, setLanguage } = useEditorStore()
-  const { configs, updateConfig, customModels, addCustomModel, removeCustomModel } = useAIStore()
+  const { configs, updateConfig, customModels } = useAIStore()
+
+  // Sync initialSection when dialog opens
+  useEffect(() => {
+    if (open && initialSection) {
+      setActiveSection(initialSection)
+    }
+  }, [open, initialSection])
 
   if (!open) return null
 
@@ -76,196 +111,218 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     setShowApiKeys(prev => ({ ...prev, [provider]: !prev[provider] }))
   }
 
+  const renderSidebarGroup = (items: SidebarItem[], label: string) => (
+    <div>
+      <div className="text-[10px] font-medium text-text-muted uppercase tracking-wider px-3 mb-1">{label}</div>
+      {items.map(item => {
+        const Icon = item.icon
+        return (
+          <button
+            key={item.id}
+            onClick={() => setActiveSection(item.id)}
+            className={cn(
+              'flex items-center gap-2.5 w-full px-3 py-2 text-xs rounded-lg transition',
+              activeSection === item.id
+                ? 'bg-accent/15 text-accent font-medium'
+                : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+            )}
+          >
+            <Icon className="w-4 h-4" />
+            {item.labelKo}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  const sectionTitle = [...TOOL_SECTIONS, ...SETTINGS_SECTIONS].find(s => s.id === activeSection)?.labelKo || ''
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-bg-surface border border-border rounded-xl shadow-2xl w-[560px] max-h-[80vh] overflow-hidden flex flex-col">
+      <div className="bg-bg-surface border border-border rounded-xl shadow-2xl w-[720px] h-[80vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
           <h2 className="text-sm font-bold text-text-primary">{t('settings.title', '설정')}</h2>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary transition">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Tab bar */}
-        <div className="flex border-b border-border px-5 shrink-0">
-          {([
-            { key: 'general' as SettingsTab, label: t('settings.general', '일반') },
-            { key: 'ai' as SettingsTab, label: t('settings.ai', 'AI 설정') },
-          ]).map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={cn(
-                'px-4 py-2.5 text-xs font-medium border-b-2 transition',
-                activeTab === tab.key
-                  ? 'border-accent text-accent'
-                  : 'border-transparent text-text-muted hover:text-text-secondary',
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* Body: sidebar + content */}
+        <div className="flex flex-1 overflow-hidden min-h-0">
+          {/* Sidebar */}
+          <div className="w-[180px] shrink-0 border-r border-border bg-bg-primary p-3 space-y-4 overflow-y-auto">
+            {renderSidebarGroup(TOOL_SECTIONS, '도구')}
+            <div className="border-t border-border mx-2" />
+            {renderSidebarGroup(SETTINGS_SECTIONS, '설정')}
+          </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5">
-          {activeTab === 'general' && (
-            <div className="space-y-6">
-              {/* Version */}
-              <div>
-                <h3 className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5" />
-                  {t('settings.version', '버전')}
-                </h3>
-                <div className="px-4 py-3 rounded-lg border border-border bg-bg-primary">
-                  <span className="text-xs text-text-primary font-mono">Onion Flow v{APP_VERSION}</span>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-5 min-h-0">
+            <h3 className="text-sm font-semibold text-text-primary mb-4">{sectionTitle}</h3>
+
+            {activeSection === 'stats' && <StatsContent />}
+            {activeSection === 'timeline' && <TimelineContent />}
+            {activeSection === 'export' && <ExportContent />}
+            {activeSection === 'trash' && <TrashContent />}
+
+            {activeSection === 'general' && (
+              <div className="space-y-6">
+                {/* Version */}
+                <div>
+                  <h3 className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5" />
+                    {t('settings.version', '버전')}
+                  </h3>
+                  <div className="px-4 py-3 rounded-lg border border-border bg-bg-primary">
+                    <span className="text-xs text-text-primary font-mono">Onion Flow v{APP_VERSION}</span>
+                  </div>
+                </div>
+
+                {/* Language */}
+                <div>
+                  <h3 className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5" />
+                    {t('settings.language', '언어')}
+                  </h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {LANGUAGE_OPTIONS.map(({ key, label, flag }) => (
+                      <button
+                        key={key}
+                        onClick={() => setLanguage(key)}
+                        className={cn(
+                          'flex items-center gap-2 px-4 py-3 rounded-lg border transition',
+                          language === key
+                            ? 'border-accent bg-accent/10 text-accent'
+                            : 'border-border bg-bg-primary text-text-muted hover:border-text-muted',
+                        )}
+                      >
+                        <span className="text-base">{flag}</span>
+                        <span className="text-xs font-medium">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Theme */}
+                <div>
+                  <h3 className="text-xs font-semibold text-text-secondary mb-3">
+                    {t('settings.theme', '테마')}
+                  </h3>
+                  <div className="grid grid-cols-3 gap-2">
+                    {THEME_OPTIONS.map(({ key, label, labelKo, icon: Icon }) => (
+                      <button
+                        key={key}
+                        onClick={() => setTheme(key)}
+                        className={cn(
+                          'flex flex-col items-center gap-2 px-4 py-3 rounded-lg border transition',
+                          theme === key
+                            ? 'border-accent bg-accent/10 text-accent'
+                            : 'border-border bg-bg-primary text-text-muted hover:border-text-muted',
+                        )}
+                      >
+                        <Icon className="w-5 h-5" />
+                        <span className="text-xs font-medium">{language === 'ko' ? labelKo : label}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
+            )}
 
-              {/* Language */}
-              <div>
-                <h3 className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5" />
-                  {t('settings.language', '언어')}
-                </h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {LANGUAGE_OPTIONS.map(({ key, label, flag }) => (
-                    <button
-                      key={key}
-                      onClick={() => setLanguage(key)}
-                      className={cn(
-                        'flex items-center gap-2 px-4 py-3 rounded-lg border transition',
-                        language === key
-                          ? 'border-accent bg-accent/10 text-accent'
-                          : 'border-border bg-bg-primary text-text-muted hover:border-text-muted',
-                      )}
-                    >
-                      <span className="text-base">{flag}</span>
-                      <span className="text-xs font-medium">{label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {activeSection === 'ai' && (
+              <div className="space-y-4">
+                <p className="text-[10px] text-text-muted">
+                  {t('settings.aiDescription', 'Story Flow에서 AI 기능을 사용하려면 API 키를 입력하세요. 키는 로컬에만 저장됩니다.')}
+                </p>
 
-              {/* Theme */}
-              <div>
-                <h3 className="text-xs font-semibold text-text-secondary mb-3">
-                  {t('settings.theme', '테마')}
-                </h3>
-                <div className="grid grid-cols-3 gap-2">
-                  {THEME_OPTIONS.map(({ key, label, labelKo, icon: Icon }) => (
-                    <button
-                      key={key}
-                      onClick={() => setTheme(key)}
-                      className={cn(
-                        'flex flex-col items-center gap-2 px-4 py-3 rounded-lg border transition',
-                        theme === key
-                          ? 'border-accent bg-accent/10 text-accent'
-                          : 'border-border bg-bg-primary text-text-muted hover:border-text-muted',
-                      )}
-                    >
-                      <Icon className="w-5 h-5" />
-                      <span className="text-xs font-medium">{language === 'ko' ? labelKo : label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+                {PROVIDER_INFO.map(({ key, label, description, defaultModels }) => {
+                  const config = configs[key]
+                  if (!config) return null
+                  const isVisible = showApiKeys[key] || false
+                  const allModels = [...defaultModels, ...(customModels[key] || [])]
 
-          {activeTab === 'ai' && (
-            <div className="space-y-4">
-              <p className="text-[10px] text-text-muted">
-                {t('settings.aiDescription', 'Story Flow에서 AI 기능을 사용하려면 API 키를 입력하세요. 키는 로컬에만 저장됩니다.')}
-              </p>
-
-              {PROVIDER_INFO.map(({ key, label, description, defaultModels }) => {
-                const config = configs[key]
-                if (!config) return null
-                const isVisible = showApiKeys[key] || false
-                const allModels = [...defaultModels, ...(customModels[key] || [])]
-
-                return (
-                  <div key={key} className="rounded-lg border border-border bg-bg-primary p-4 space-y-3">
-                    {/* Header with toggle */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-xs font-semibold text-text-primary">{label}</h4>
-                        <p className="text-[10px] text-text-muted">{description}</p>
+                  return (
+                    <div key={key} className="rounded-lg border border-border bg-bg-primary p-4 space-y-3">
+                      {/* Header with toggle */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-xs font-semibold text-text-primary">{label}</h4>
+                          <p className="text-[10px] text-text-muted">{description}</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={config.enabled}
+                            onChange={(e) => updateConfig(key, { enabled: e.target.checked })}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-bg-hover rounded-full peer peer-checked:bg-accent transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full" />
+                        </label>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={config.enabled}
-                          onChange={(e) => updateConfig(key, { enabled: e.target.checked })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-9 h-5 bg-bg-hover rounded-full peer peer-checked:bg-accent transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full" />
-                      </label>
-                    </div>
 
-                    {config.enabled && (
-                      <>
-                        {/* API Key */}
-                        <div>
-                          <label className="block text-[10px] font-medium text-text-muted mb-1">API Key</label>
-                          <div className="flex items-center gap-1">
-                            <input
-                              type={isVisible ? 'text' : 'password'}
-                              value={config.apiKey}
-                              onChange={(e) => updateConfig(key, { apiKey: e.target.value })}
-                              placeholder="sk-..."
-                              className="flex-1 px-2.5 py-1.5 rounded bg-bg-surface border border-border text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
-                            />
-                            <button
-                              onClick={() => toggleKeyVisibility(key)}
-                              className="p-1.5 rounded hover:bg-bg-hover text-text-muted transition"
-                              title={isVisible ? '숨기기' : '보기'}
-                            >
-                              {isVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
+                      {config.enabled && (
+                        <>
+                          {/* API Key */}
+                          <div>
+                            <label className="block text-[10px] font-medium text-text-muted mb-1">API Key</label>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type={isVisible ? 'text' : 'password'}
+                                value={config.apiKey}
+                                onChange={(e) => updateConfig(key, { apiKey: e.target.value })}
+                                placeholder="sk-..."
+                                className="flex-1 px-2.5 py-1.5 rounded bg-bg-surface border border-border text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+                              />
+                              <button
+                                onClick={() => toggleKeyVisibility(key)}
+                                className="p-1.5 rounded hover:bg-bg-hover text-text-muted transition"
+                                title={isVisible ? '숨기기' : '보기'}
+                              >
+                                {isVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Model selector */}
-                        <div>
-                          <label className="block text-[10px] font-medium text-text-muted mb-1">
-                            {t('settings.model', '모델')}
-                          </label>
-                          <select
-                            value={config.model}
-                            onChange={(e) => updateConfig(key, { model: e.target.value })}
-                            className="w-full px-2.5 py-1.5 rounded bg-bg-surface border border-border text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
-                          >
-                            {allModels.map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Base URL (optional, for llama/grok) */}
-                        {(key === 'llama' || key === 'grok') && (
+                          {/* Model selector */}
                           <div>
                             <label className="block text-[10px] font-medium text-text-muted mb-1">
-                              Base URL ({t('settings.optional', '선택사항')})
+                              {t('settings.model', '모델')}
                             </label>
-                            <input
-                              type="text"
-                              value={config.baseUrl || ''}
-                              onChange={(e) => updateConfig(key, { baseUrl: e.target.value || undefined })}
-                              placeholder={key === 'grok' ? 'https://api.x.ai/v1' : 'https://api.together.xyz/v1'}
+                            <select
+                              value={config.model}
+                              onChange={(e) => updateConfig(key, { model: e.target.value })}
                               className="w-full px-2.5 py-1.5 rounded bg-bg-surface border border-border text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
-                            />
+                            >
+                              {allModels.map(m => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </select>
                           </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
+
+                          {/* Base URL (optional, for llama/grok) */}
+                          {(key === 'llama' || key === 'grok') && (
+                            <div>
+                              <label className="block text-[10px] font-medium text-text-muted mb-1">
+                                Base URL ({t('settings.optional', '선택사항')})
+                              </label>
+                              <input
+                                type="text"
+                                value={config.baseUrl || ''}
+                                onChange={(e) => updateConfig(key, { baseUrl: e.target.value || undefined })}
+                                placeholder={key === 'grok' ? 'https://api.x.ai/v1' : 'https://api.together.xyz/v1'}
+                                className="w-full px-2.5 py-1.5 rounded bg-bg-surface border border-border text-text-primary text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

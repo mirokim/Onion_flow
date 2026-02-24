@@ -20,9 +20,13 @@ describe('nodeRegistry', () => {
       expect(types).toContain('character')
       expect(types).toContain('event')
       expect(types).toContain('wiki')
-      expect(types).toContain('personality')
-      expect(types).toContain('appearance')
       expect(types).toContain('memory')
+      expect(types).toContain('motivation')
+      expect(types).toContain('image_load')
+      expect(types).toContain('document_load')
+
+      // Plot
+      expect(types).toContain('plot_context')
 
       // Direction
       expect(types).toContain('pov')
@@ -32,8 +36,10 @@ describe('nodeRegistry', () => {
       // Processing
       expect(types).toContain('storyteller')
       expect(types).toContain('summarizer')
+      expect(types).toContain('switch')
 
       // Special
+      expect(types).toContain('preview_changed')
       expect(types).toContain('what_if')
       expect(types).toContain('show_dont_tell')
       expect(types).toContain('tikitaka')
@@ -46,7 +52,8 @@ describe('nodeRegistry', () => {
       expect(types).toContain('conflict_defense')
 
       // Output
-      expect(types).toContain('save_story')
+      expect(types).toContain('save_content')
+      expect(types).toContain('preview_content')
 
       // Structure
       expect(types).toContain('group')
@@ -92,32 +99,38 @@ describe('nodeRegistry', () => {
       }
     })
 
-    it('context source nodes should only have output handles (data sources)', () => {
-      // Character has input handles (personality, appearance, memory), so we check other context nodes
-      const sourceNodes = NODE_REGISTRY.filter(n =>
-        n.category === 'context' && n.type !== 'character',
-      )
-      for (const def of sourceNodes) {
-        expect(def.inputs).toHaveLength(0)
-        expect(def.outputs.length).toBeGreaterThan(0)
-      }
-    })
-
-    it('character node should have 3 input handles for sub-nodes', () => {
+    it('character node should have 2 input handles (motivation_in, memory_in)', () => {
       const character = NODE_REGISTRY.find(n => n.type === 'character')!
-      expect(character.inputs).toHaveLength(3)
+      expect(character.inputs).toHaveLength(2)
       const inputIds = character.inputs.map(i => i.id)
-      expect(inputIds).toContain('personality')
-      expect(inputIds).toContain('appearance')
-      expect(inputIds).toContain('memory')
+      expect(inputIds).toContain('motivation_in')
+      expect(inputIds).toContain('memory_in')
     })
 
-    it('save_story node should have 1 input and no outputs', () => {
-      const saveStory = NODE_REGISTRY.find(n => n.type === 'save_story')!
-      expect(saveStory.inputs).toHaveLength(1)
-      expect(saveStory.inputs[0].id).toBe('story')
-      expect(saveStory.outputs).toHaveLength(0)
-      expect(saveStory.category).toBe('output')
+    it('memory and motivation nodes should have plot_in input handle', () => {
+      const memory = NODE_REGISTRY.find(n => n.type === 'memory')!
+      expect(memory.inputs).toHaveLength(1)
+      expect(memory.inputs[0].id).toBe('plot_in')
+
+      const motivation = NODE_REGISTRY.find(n => n.type === 'motivation')!
+      expect(motivation.inputs).toHaveLength(1)
+      expect(motivation.inputs[0].id).toBe('plot_in')
+    })
+
+    it('save_content node should have 1 input and no outputs', () => {
+      const saveContent = NODE_REGISTRY.find(n => n.type === 'save_content')!
+      expect(saveContent.inputs).toHaveLength(1)
+      expect(saveContent.inputs[0].id).toBe('content')
+      expect(saveContent.outputs).toHaveLength(0)
+      expect(saveContent.category).toBe('output')
+    })
+
+    it('preview_content node should have 1 input and no outputs', () => {
+      const previewContent = NODE_REGISTRY.find(n => n.type === 'preview_content')!
+      expect(previewContent.inputs).toHaveLength(1)
+      expect(previewContent.inputs[0].id).toBe('content')
+      expect(previewContent.outputs).toHaveLength(0)
+      expect(previewContent.category).toBe('output')
     })
 
     it('storyteller node should have multiple input handles', () => {
@@ -133,12 +146,27 @@ describe('nodeRegistry', () => {
       expect(group.outputs).toHaveLength(0)
       expect(group.category).toBe('structure')
     })
+
+    it('plot_context node should have genre, structure, wikiEntryId in defaultData', () => {
+      const plot = NODE_REGISTRY.find(n => n.type === 'plot_context')!
+      expect(plot.category).toBe('plot')
+      expect(plot.defaultData).toHaveProperty('selectedGenre')
+      expect(plot.defaultData).toHaveProperty('selectedStructure')
+      expect(plot.defaultData).toHaveProperty('wikiEntryId')
+    })
+
+    it('preview_changed node should accept character input', () => {
+      const previewChanged = NODE_REGISTRY.find(n => n.type === 'preview_changed')!
+      expect(previewChanged.inputs).toHaveLength(1)
+      expect(previewChanged.inputs[0].id).toBe('character_in')
+      expect(previewChanged.category).toBe('special')
+    })
   })
 
   describe('NODE_CATEGORY_COLORS', () => {
     it('should define colors for all categories', () => {
       const categories: CanvasNodeCategory[] = [
-        'context', 'direction', 'processing', 'special', 'detector', 'structure', 'output',
+        'context', 'direction', 'processing', 'special', 'detector', 'structure', 'output', 'plot',
       ]
       for (const cat of categories) {
         expect(NODE_CATEGORY_COLORS[cat]).toBeTruthy()
@@ -176,20 +204,24 @@ describe('nodeRegistry', () => {
       }
     })
 
-    it('should return 6 context nodes', () => {
-      expect(getNodesByCategory('context')).toHaveLength(6)
+    it('should return 7 context nodes', () => {
+      expect(getNodesByCategory('context')).toHaveLength(7)
+    })
+
+    it('should return 1 plot node', () => {
+      expect(getNodesByCategory('plot')).toHaveLength(1)
     })
 
     it('should return 3 direction nodes', () => {
       expect(getNodesByCategory('direction')).toHaveLength(3)
     })
 
-    it('should return 2 processing nodes', () => {
-      expect(getNodesByCategory('processing')).toHaveLength(2)
+    it('should return 3 processing nodes', () => {
+      expect(getNodesByCategory('processing')).toHaveLength(3)
     })
 
-    it('should return 5 special nodes', () => {
-      expect(getNodesByCategory('special')).toHaveLength(5)
+    it('should return 6 special nodes', () => {
+      expect(getNodesByCategory('special')).toHaveLength(6)
     })
 
     it('should return 3 detector nodes', () => {
@@ -200,8 +232,8 @@ describe('nodeRegistry', () => {
       expect(getNodesByCategory('structure')).toHaveLength(1)
     })
 
-    it('should return 1 output node (save_story)', () => {
-      expect(getNodesByCategory('output')).toHaveLength(1)
+    it('should return 2 output nodes (save_content, preview_content)', () => {
+      expect(getNodesByCategory('output')).toHaveLength(2)
     })
 
     it('should return empty array for unknown category', () => {

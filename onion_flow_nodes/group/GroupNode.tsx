@@ -1,6 +1,8 @@
 /**
  * GroupNode - Visual container for grouping nodes on the canvas.
  * Rendered as a resizable, semi-transparent panel.
+ * Uses pointer-events: none on the body so clicks pass through to child nodes,
+ * while keeping the label and resize handles interactive.
  */
 import { memo } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'

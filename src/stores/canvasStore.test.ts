@@ -467,8 +467,8 @@ describe('canvasStore', () => {
       await useCanvasStore.getState().createDefaultTemplate('proj-1')
 
       const state = useCanvasStore.getState()
-      expect(state.nodes).toHaveLength(7)
-      expect(state.wires).toHaveLength(6)
+      expect(state.nodes).toHaveLength(4)
+      expect(state.wires).toHaveLength(3)
     })
 
     it('should create the correct node types', async () => {
@@ -476,37 +476,24 @@ describe('canvasStore', () => {
 
       const types = useCanvasStore.getState().nodes.map(n => n.type).sort()
       expect(types).toEqual([
-        'appearance', 'character', 'event', 'memory',
-        'personality', 'save_story', 'storyteller',
+        'character', 'event', 'save_content', 'storyteller',
       ])
     })
 
-    it('should wire personality/appearance/memory → character', async () => {
-      await useCanvasStore.getState().createDefaultTemplate('proj-1')
-
-      const state = useCanvasStore.getState()
-      const characterNode = state.nodes.find(n => n.type === 'character')!
-      const incomingToCharacter = state.wires.filter(w => w.targetNodeId === characterNode.id)
-
-      expect(incomingToCharacter).toHaveLength(3)
-      const targetHandles = incomingToCharacter.map(w => w.targetHandle).sort()
-      expect(targetHandles).toEqual(['appearance', 'memory', 'personality'])
-    })
-
-    it('should wire character + event → storyteller → save_story', async () => {
+    it('should wire character + event → storyteller → save_content', async () => {
       await useCanvasStore.getState().createDefaultTemplate('proj-1')
 
       const state = useCanvasStore.getState()
       const storytellerNode = state.nodes.find(n => n.type === 'storyteller')!
-      const saveStoryNode = state.nodes.find(n => n.type === 'save_story')!
+      const saveContentNode = state.nodes.find(n => n.type === 'save_content')!
 
       const incomingToStoryteller = state.wires.filter(w => w.targetNodeId === storytellerNode.id)
       expect(incomingToStoryteller).toHaveLength(2)
 
-      const incomingToSaveStory = state.wires.filter(w => w.targetNodeId === saveStoryNode.id)
-      expect(incomingToSaveStory).toHaveLength(1)
-      expect(incomingToSaveStory[0].sourceNodeId).toBe(storytellerNode.id)
-      expect(incomingToSaveStory[0].targetHandle).toBe('story')
+      const incomingToSaveContent = state.wires.filter(w => w.targetNodeId === saveContentNode.id)
+      expect(incomingToSaveContent).toHaveLength(1)
+      expect(incomingToSaveContent[0].sourceNodeId).toBe(storytellerNode.id)
+      expect(incomingToSaveContent[0].targetHandle).toBe('content')
     })
   })
 

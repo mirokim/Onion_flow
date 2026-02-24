@@ -82,25 +82,17 @@ export interface DailyStats {
 
 export type CanvasNodeType =
   | 'character' | 'event' | 'wiki'
-  | 'personality' | 'appearance' | 'memory'
+  | 'memory' | 'motivation'
   | 'image_load' | 'document_load' | 'plot_context'
   | 'pov' | 'pacing' | 'style_transfer'
-  | 'storyteller' | 'summarizer'
-  | 'save_story'
+  | 'storyteller' | 'summarizer' | 'switch'
+  | 'save_content' | 'preview_content'
   | 'what_if' | 'show_dont_tell' | 'tikitaka'
   | 'cliffhanger' | 'virtual_reader'
   | 'emotion_tracker' | 'foreshadow_detector' | 'conflict_defense'
   | 'group'
-  // Plot type nodes
-  | 'plot_overcome' | 'plot_hero_journey' | 'plot_rags_to_riches'
-  | 'plot_tragedy' | 'plot_comedy' | 'plot_rebirth'
-  | 'plot_voyage_return' | 'plot_forbidden_love' | 'plot_revenge'
-  | 'plot_mystery'
-  | 'plot_linear' | 'plot_nonlinear' | 'plot_circular'
-  | 'plot_episodic' | 'plot_three_act' | 'plot_five_act'
-  | 'plot_freytag'
-  | 'plot_dystopia' | 'plot_thriller' | 'plot_romance'
-  | 'plot_horror' | 'plot_experimental'
+  // Special nodes
+  | 'preview_changed'
   | (string & {})   // Allow custom node types from plugins
 
 export type CanvasNodeCategory = 'context' | 'direction' | 'processing' | 'special' | 'detector' | 'structure' | 'output' | 'plot'
@@ -132,6 +124,13 @@ export interface CanvasWire {
 
 export type CharacterPosition = 'rival' | 'villain' | 'friend' | 'mentor' | 'sidekick' | 'love_interest' | 'family' | 'subordinate' | 'neutral' | 'custom'
 
+export type CharacterArchetype =
+  | 'protagonist' | 'antagonist' | 'helper' | 'mentor' | 'betrayer'
+  | 'guardian' | 'trickster' | 'shapeshifter' | 'herald' | 'shadow'
+  | 'threshold_guardian' | 'ally' | 'other'
+
+export type CharacterStatus = 'alive' | 'dead' | 'missing' | 'unknown'
+
 export interface Character {
   id: string
   projectId: string
@@ -139,6 +138,23 @@ export interface Character {
   aliases: string[]
   role: 'protagonist' | 'antagonist' | 'supporting' | 'minor'
   position: CharacterPosition
+  // Base info
+  age: string
+  job: string
+  affiliation: string
+  logline: string
+  archetype: CharacterArchetype
+  signatureItem: string
+  habits: string
+  status: CharacterStatus
+  currentLocation: string
+  // Inner motivation
+  desire: string
+  deficiency: string
+  fear: string
+  secret: string
+  values: string
+  // Descriptions
   personality: string
   abilities: string
   appearance: string
@@ -245,8 +261,8 @@ export interface Foreshadow {
 // ── Wiki ──
 
 export type WikiCategory = WorldSettingCategory
-  | 'character' | 'character_personality' | 'character_appearance' | 'character_memory'
-  | 'event' | 'story'
+  | 'character' | 'character_memory' | 'character_motivation'
+  | 'event' | 'story' | 'plot'
   | 'item' | 'custom'
 
 export type WikiFilterCategory = WikiCategory
@@ -400,3 +416,19 @@ export interface EntityVersion {
 // ── UI Types ──
 
 export type SidebarTab = 'projects' | 'chapters' | 'search' | 'onionMap'
+
+// ── Trash / Recycle Bin ──
+
+export type TrashEntityType = 'wiki_entry' | 'canvas_node' | 'character' | 'chapter'
+  | 'world_setting' | 'item' | 'reference_data' | 'foreshadow'
+
+export interface TrashItem {
+  id: string
+  projectId: string
+  entityType: TrashEntityType
+  entityId: string
+  entityData: Record<string, any>
+  relatedData?: Record<string, any>
+  deletedAt: number
+  expiresAt: number  // deletedAt + 30 days
+}

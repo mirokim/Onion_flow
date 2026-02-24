@@ -6,6 +6,7 @@ import type {
   Project, Chapter, Character, CharacterRelation,
   WorldSetting, Foreshadow, Item, ReferenceData,
   EntityVersion, AIConversation, AIMessage, AIProvider, OnionNode,
+  TrashItem,
 } from '@/types'
 
 /** Extract common timestamp fields from a DB row */
@@ -33,6 +34,8 @@ export function rowToProject(r: any): Project {
     genre: r.genre,
     synopsis: r.synopsis,
     settings: JSON.parse(r.settings || '{}'),
+    ...(r.folder_path ? { folderPath: r.folder_path } : {}),
+    ...(r.uses_folder_storage ? { usesFolderStorage: true } : {}),
     ...ts(r),
   }
 }
@@ -60,6 +63,20 @@ export function rowToCharacter(r: any): Character {
     aliases: parseJsonArray<string>(r.aliases),
     role: r.role,
     position: r.position || 'neutral',
+    age: r.age || '',
+    job: r.job || '',
+    affiliation: r.affiliation || '',
+    logline: r.logline || '',
+    archetype: r.archetype || 'other',
+    signatureItem: r.signature_item || '',
+    habits: r.habits || '',
+    status: r.status || 'alive',
+    currentLocation: r.current_location || '',
+    desire: r.desire || '',
+    deficiency: r.deficiency || '',
+    fear: r.fear || '',
+    secret: r.secret || '',
+    values: r.values || '',
     personality: r.personality,
     abilities: r.abilities,
     appearance: r.appearance,
@@ -197,5 +214,18 @@ export function rowToOnionNode(r: any): OnionNode {
     content: r.content,
     order: r.order,
     ...ts(r),
+  }
+}
+
+export function rowToTrashItem(r: any): TrashItem {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    entityType: r.entity_type,
+    entityId: r.entity_id,
+    entityData: JSON.parse(r.entity_data || '{}'),
+    relatedData: r.related_data ? JSON.parse(r.related_data) : undefined,
+    deletedAt: r.deleted_at,
+    expiresAt: r.expires_at,
   }
 }

@@ -4,15 +4,17 @@
  */
 import { useEditorStore } from '@/stores/editorStore'
 import { useCanvasStore } from '@/stores/canvasStore'
+import { generateId } from '@/lib/utils'
 import { PanelTabBar, type PanelDragHandlers } from '@/components/layout/PanelTabBar'
 import { DepthBreadcrumb } from '@/components/layout/DepthBreadcrumb'
 import { NodeCanvas } from './NodeCanvas'
 
 interface MultiTabCanvasProps {
   panelDragHandlers?: PanelDragHandlers
+  isGrouped?: boolean
 }
 
-export function MultiTabCanvas({ panelDragHandlers }: MultiTabCanvasProps) {
+export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasProps) {
   const canvasTabs = useEditorStore(s => s.canvasTabs)
   const activeCanvasTabId = useEditorStore(s => s.activeCanvasTabId)
   const closeCanvasTab = useEditorStore(s => s.closeCanvasTab)
@@ -35,22 +37,40 @@ export function MultiTabCanvas({ panelDragHandlers }: MultiTabCanvasProps) {
   }
 
   const handleAddTab = () => {
-    openCanvasTab(null, 'New Story Flow')
+    // Use a unique ID so each + click creates a new tab (instead of focusing the existing root)
+    openCanvasTab(generateId(), `Canvas ${canvasTabs.length + 1}`)
   }
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <PanelTabBar
-        tabs={canvasTabs}
-        activeTabId={activeCanvasTabId}
-        onSelect={handleSelectTab}
-        onClose={closeCanvasTab}
-        onAdd={handleAddTab}
-        onReorder={reorderCanvasTabs}
-        onTogglePin={toggleCanvasTabPin}
-        canClose
-        panelDragHandlers={panelDragHandlers}
-      />
+      {!isGrouped && (
+        <PanelTabBar
+          tabs={canvasTabs}
+          activeTabId={activeCanvasTabId}
+          onSelect={handleSelectTab}
+          onClose={closeCanvasTab}
+          onAdd={handleAddTab}
+          onReorder={reorderCanvasTabs}
+          onTogglePin={toggleCanvasTabPin}
+          canClose
+          panelDragHandlers={panelDragHandlers}
+          panelType="canvas"
+          onRenameTab={(tabId) => {
+            const tab = canvasTabs.find(t => t.id === tabId)
+            if (tab) {
+              const newLabel = prompt('탭 이름변경', tab.label)
+              if (newLabel && newLabel.trim()) {
+                useEditorStore.setState(s => ({
+                  canvasTabs: s.canvasTabs.map(t => t.id === tabId ? { ...t, label: newLabel.trim() } : t),
+                }))
+              }
+            }
+          }}
+          onDuplicateTab={() => {
+            useEditorStore.getState().splitTabToNewGroup('canvas')
+          }}
+        />
+      )}
       <DepthBreadcrumb />
       <div className="flex-1 relative overflow-hidden min-h-0">
         <NodeCanvas />

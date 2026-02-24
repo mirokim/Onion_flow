@@ -1,16 +1,30 @@
 /**
  * OpenFilesPanel — File explorer with virtual folder structure.
  * Toolbar with creation/sort/expand actions + recursive tree view.
+ * Right-click context menu for file operations.
  */
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useEditorStore, type FileTreeNode } from '@/stores/editorStore'
 import { useProjectStore } from '@/stores/projectStore'
+import { useCanvasStore } from '@/stores/canvasStore'
 import {
   Folder, FolderOpen, FolderPlus, LayoutGrid, FileText, Plus,
   ArrowDownAZ, ArrowDownWideNarrow, ChevronsUpDown, ChevronsDownUp,
   ChevronRight, ChevronDown, Trash2,
+  ExternalLink, AppWindow, Copy, Download, Edit3,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createPortal } from 'react-dom'
+import { downloadTextFile, downloadJsonFile, extractPlainText } from '@/export/exportUtils'
+import { toast } from '@/components/common/Toast'
+
+/* ── types ── */
+
+interface ContextMenuState {
+  x: number
+  y: number
+  nodeId: string
+}
 
 /* ── helpers ── */
 
@@ -43,6 +57,9 @@ function FileTreeNodeComponent({
   openCanvasTabIds,
   openEditorTargetIds,
   sortBy,
+  onContextMenu,
+  renamingNodeId,
+  onRenamingDone,
 }: {
   nodeId: string
   depth: number
@@ -51,6 +68,9 @@ function FileTreeNodeComponent({
   openCanvasTabIds: Set<string>
   openEditorTargetIds: Set<string>
   sortBy: 'name' | 'date'
+  onContextMenu: (state: ContextMenuState) => void
+  renamingNodeId: string | null
+  onRenamingDone: () => void
 }) {
   const node = useEditorStore(s => s.fileTreeNodes[nodeId])
   const fileTreeNodes = useEditorStore(s => s.fileTreeNodes)
@@ -60,6 +80,7 @@ function FileTreeNodeComponent({
   const removeFileTreeNode = useEditorStore(s => s.removeFileTreeNode)
   const setActiveCanvasTab = useEditorStore(s => s.setActiveCanvasTab)
   const setActiveEditorTab = useEditorStore(s => s.setActiveEditorTab)
+  const activatePanel = useEditorStore(s => s.activatePanel)
   const openTabs = useEditorStore(s => s.openTabs)
   const toggleTab = useEditorStore(s => s.toggleTab)
   const editorTabs = useEditorStore(s => s.editorTabs)
@@ -67,6 +88,15 @@ function FileTreeNodeComponent({
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [dragOverState, setDragOverState] = useState<'above' | 'inside' | 'below' | null>(null)
+
+  // Trigger rename from context menu
+  useEffect(() => {
+    if (renamingNodeId === nodeId && node) {
+      setIsRenaming(true)
+      setRenameValue(node.name)
+      onRenamingDone()
+    }
+  }, [renamingNodeId, nodeId, node, onRenamingDone])
 
   if (!node) return null
 
@@ -94,11 +124,20 @@ function FileTreeNodeComponent({
     } else if (node.type === 'canvas' && node.targetId) {
       setActiveCanvasTab(node.targetId)
       if (!openTabs.includes('canvas')) toggleTab('canvas')
+      else activatePanel('canvas')
     } else if (node.type === 'chapter' && node.targetId) {
       const tab = editorTabs.find(t => t.targetId === node.targetId)
       if (tab) setActiveEditorTab(tab.id)
       if (!openTabs.includes('editor')) toggleTab('editor')
+      else activatePanel('editor')
     }
+  }
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (node.type === 'folder') return // folders use default browser menu
+    e.preventDefault()
+    e.stopPropagation()
+    onContextMenu({ x: e.clientX, y: e.clientY, nodeId })
   }
 
   /* drag-and-drop */
@@ -173,6 +212,7 @@ function FileTreeNodeComponent({
         )}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         onDoubleClick={() => { setIsRenaming(true); setRenameValue(node.name) }}
       >
         {node.type === 'folder' && (
@@ -233,11 +273,201 @@ function FileTreeNodeComponent({
               openCanvasTabIds={openCanvasTabIds}
               openEditorTargetIds={openEditorTargetIds}
               sortBy={sortBy}
+              onContextMenu={onContextMenu}
+              renamingNodeId={renamingNodeId}
+              onRenamingDone={onRenamingDone}
             />
           ))}
         </div>
       )}
     </div>
+  )
+}
+
+/* ── FileTreeContextMenu ── */
+
+function FileTreeContextMenu({
+  menu,
+  onClose,
+  onRename,
+}: {
+  menu: ContextMenuState
+  onClose: () => void
+  onRename: (nodeId: string) => void
+}) {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const node = useEditorStore(s => s.fileTreeNodes[menu.nodeId])
+  const removeFileTreeNode = useEditorStore(s => s.removeFileTreeNode)
+  const openCanvasTab = useEditorStore(s => s.openCanvasTab)
+  const openEditorTab = useEditorStore(s => s.openEditorTab)
+  const closeCanvasTab = useEditorStore(s => s.closeCanvasTab)
+  const activatePanel = useEditorStore(s => s.activatePanel)
+  const openTabs = useEditorStore(s => s.openTabs)
+  const toggleTab = useEditorStore(s => s.toggleTab)
+  const splitTabToNewGroup = useEditorStore(s => s.splitTabToNewGroup)
+  const canvasTabs = useEditorStore(s => s.canvasTabs)
+
+  const chapters = useProjectStore(s => s.chapters)
+  const deleteChapter = useProjectStore(s => s.deleteChapter)
+  const duplicateChapter = useProjectStore(s => s.duplicateChapter)
+  const selectChapter = useProjectStore(s => s.selectChapter)
+
+  const exportCanvas = useCanvasStore(s => s.exportCanvas)
+
+  // Click-outside, right-click-outside & Escape close
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) onClose()
+    }
+    const handleContextMenu = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) onClose()
+    }
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('contextmenu', handleContextMenu)
+    document.addEventListener('keydown', handleEsc)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('contextmenu', handleContextMenu)
+      document.removeEventListener('keydown', handleEsc)
+    }
+  }, [onClose])
+
+  if (!node || node.type === 'folder') return null
+
+  // Position: keep within viewport
+  const style: React.CSSProperties = {
+    position: 'fixed',
+    left: menu.x,
+    top: menu.y,
+    zIndex: 9999,
+  }
+
+  const isCanvas = node.type === 'canvas'
+
+  // ── Actions ──
+
+  const handleOpenInNewTab = () => {
+    if (isCanvas && node.targetId) {
+      openCanvasTab(node.targetId, node.name)
+      if (!openTabs.includes('canvas')) toggleTab('canvas')
+      else activatePanel('canvas')
+    } else if (node.targetId) {
+      openEditorTab(node.targetId, node.name)
+      if (!openTabs.includes('editor')) toggleTab('editor')
+      else activatePanel('editor')
+    }
+    onClose()
+  }
+
+  const handleOpenInNewPane = () => {
+    const panelType = isCanvas ? 'canvas' as const : 'editor' as const
+    if (isCanvas && node.targetId) {
+      openCanvasTab(node.targetId, node.name)
+    } else if (node.targetId) {
+      openEditorTab(node.targetId, node.name)
+    }
+    if (!openTabs.includes(panelType)) toggleTab(panelType)
+    // Split the panel into its own group (new column)
+    splitTabToNewGroup(panelType)
+    onClose()
+  }
+
+  const handleDuplicate = async () => {
+    if (isCanvas && node.targetId) {
+      // For canvas: open a new canvas tab view (same target, but conceptually a new view)
+      const { generateId } = await import('@/lib/utils')
+      openCanvasTab(generateId(), `${node.name} (복사본)`)
+      toast.success('캔버스 복사본이 생성되었습니다.')
+    } else if (node.targetId) {
+      const copy = await duplicateChapter(node.targetId)
+      if (copy) {
+        selectChapter(copy.id)
+        toast.success('문서 복사본이 생성되었습니다.')
+      }
+    }
+    onClose()
+  }
+
+  const handleExport = () => {
+    if (isCanvas) {
+      const data = exportCanvas()
+      downloadJsonFile(data, `${node.name}.json`)
+      toast.success('캔버스가 내보내기되었습니다.')
+    } else if (node.targetId) {
+      const chapter = chapters.find(c => c.id === node.targetId)
+      if (chapter) {
+        const text = chapter.content ? extractPlainText(chapter.content) : ''
+        downloadTextFile(text || '(빈 문서)', `${node.name}.txt`)
+        toast.success('문서가 내보내기되었습니다.')
+      }
+    }
+    onClose()
+  }
+
+  const handleRename = () => {
+    onRename(menu.nodeId)
+    onClose()
+  }
+
+  const handleDelete = async () => {
+    if (isCanvas && node.targetId) {
+      // Close the canvas tab if open
+      const tab = canvasTabs.find(t => t.targetId === node.targetId)
+      if (tab) closeCanvasTab(tab.id)
+      removeFileTreeNode(menu.nodeId)
+      toast.success('캔버스가 삭제되었습니다.')
+    } else if (node.targetId) {
+      await deleteChapter(node.targetId)
+      removeFileTreeNode(menu.nodeId)
+      toast.success('문서가 삭제되었습니다.')
+    }
+    onClose()
+  }
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      style={style}
+      className="min-w-[160px] bg-bg-surface border border-border rounded-lg shadow-xl overflow-hidden py-1"
+    >
+      {/* Open actions */}
+      <button onClick={handleOpenInNewTab} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+        <ExternalLink className="w-3.5 h-3.5 text-text-muted shrink-0" />
+        <span>새 탭에서 열기</span>
+      </button>
+      <button onClick={handleOpenInNewPane} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+        <AppWindow className="w-3.5 h-3.5 text-text-muted shrink-0" />
+        <span>새 창에서 열기</span>
+      </button>
+
+      <div className="h-px bg-border mx-2 my-1" />
+
+      {/* File actions */}
+      <button onClick={handleDuplicate} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+        <Copy className="w-3.5 h-3.5 text-text-muted shrink-0" />
+        <span>복사본 생성</span>
+      </button>
+      <button onClick={handleExport} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+        <Download className="w-3.5 h-3.5 text-text-muted shrink-0" />
+        <span>내보내기</span>
+      </button>
+
+      <div className="h-px bg-border mx-2 my-1" />
+
+      {/* Edit actions */}
+      <button onClick={handleRename} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+        <Edit3 className="w-3.5 h-3.5 text-text-muted shrink-0" />
+        <span>이름변경</span>
+      </button>
+      <button onClick={handleDelete} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-bg-hover transition text-left">
+        <Trash2 className="w-3.5 h-3.5 shrink-0" />
+        <span>삭제</span>
+      </button>
+    </div>,
+    document.body,
   )
 }
 
@@ -262,6 +492,10 @@ export function OpenFilesPanel() {
   const createChapter = useProjectStore(s => s.createChapter)
   const currentProject = useProjectStore(s => s.currentProject)
   const selectChapter = useProjectStore(s => s.selectChapter)
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null)
 
   // Sync file tree whenever tabs change
   useEffect(() => {
@@ -310,6 +544,18 @@ export function OpenFilesPanel() {
       useEditorStore.getState().moveFileTreeNode(draggedId, null)
     }
   }
+
+  const handleContextMenuClose = useCallback(() => {
+    setContextMenu(null)
+  }, [])
+
+  const handleContextMenuRename = useCallback((nodeId: string) => {
+    setRenamingNodeId(nodeId)
+  }, [])
+
+  const handleRenamingDone = useCallback(() => {
+    setRenamingNodeId(null)
+  }, [])
 
   return (
     <div className="flex flex-col h-full bg-bg-primary">
@@ -367,10 +613,22 @@ export function OpenFilesPanel() {
               openCanvasTabIds={openCanvasTabIds}
               openEditorTargetIds={openEditorTargetIds}
               sortBy={fileTreeSortBy}
+              onContextMenu={setContextMenu}
+              renamingNodeId={renamingNodeId}
+              onRenamingDone={handleRenamingDone}
             />
           ))
         )}
       </div>
+
+      {/* Context menu */}
+      {contextMenu && (
+        <FileTreeContextMenu
+          menu={contextMenu}
+          onClose={handleContextMenuClose}
+          onRename={handleContextMenuRename}
+        />
+      )}
     </div>
   )
 }

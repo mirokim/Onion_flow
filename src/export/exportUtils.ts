@@ -79,6 +79,21 @@ export function downloadTextFile(content: string, filename: string): void {
 }
 
 /**
+ * Create a downloadable JSON file.
+ */
+export function downloadJsonFile(data: unknown, filename: string): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  setTimeout(() => URL.revokeObjectURL(url), 5000)
+}
+
+/**
  * Format dialogue lines for web novel platforms.
  * Ensures proper quotation marks and spacing.
  */

@@ -590,3 +590,18 @@ svg.react-flow__connectionline {
   font-size: 0.8rem;
   color: var(--color-text-secondary);
 }
+
+/* ── Character @mention styles ── */
+.character-mention {
+  background-color: var(--color-accent-dim, #e8f4f8);
+  color: var(--color-accent, #2eaadc);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+.character-mention:hover {
+  background-color: var(--color-accent, #2eaadc);
+  color: white;
+}

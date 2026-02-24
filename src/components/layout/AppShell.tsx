@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
-import { useEditorStore, type PanelTab } from '@/stores/editorStore'
+import { useEditorStore, type PanelTab, type PanelGroup } from '@/stores/editorStore'
 import { useTranslation } from 'react-i18next'
 import type { PanelDragHandlers } from '@/components/layout/PanelTabBar'
+import { PanelGroupTabBar } from '@/components/layout/PanelGroupTabBar'
 import { TopBar } from './TopBar'
 import { TabBar } from './TabBar'
 import { BottomBar } from './BottomBar'
@@ -12,13 +13,10 @@ import { MultiTabEditor } from '@/components/editor/MultiTabEditor'
 import { BlockEditor } from '@/components/editor/BlockEditor'
 import { WikiPanel } from '@/components/wiki/WikiPanel'
 import { ChapterPanel } from '@/components/chapters/ChapterPanel'
-import { StatsPopup } from '@/components/stats/StatsPopup'
-import { ExportPopup } from '@/components/stats/ExportPopup'
-import { TimelinePanel } from '@/components/version/TimelinePanel'
 import { AIPanel } from '@/components/ai/AIPanel'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { ProjectDialog } from '@/components/common/ProjectDialog'
-import { SettingsDialog } from '@/components/common/SettingsDialog'
+import { SettingsDialog, type SettingsSection } from '@/components/common/SettingsDialog'
 import { cn } from '@/lib/utils'
 
 const MIN_LEFT_WIDTH = 200
@@ -31,18 +29,22 @@ const MAX_OPENFILES_WIDTH = 400
 /** Panels that participate in the dynamic layout (excludes openfiles) */
 const LAYOUT_PANELS = new Set<PanelTab>(['canvas', 'editor', 'wiki', 'chapters', 'ai'])
 
-function PanelContent({ tab, panelDragHandlers }: { tab: PanelTab; panelDragHandlers?: PanelDragHandlers }) {
+function PanelContent({ tab, panelDragHandlers, isGrouped }: {
+  tab: PanelTab
+  panelDragHandlers?: PanelDragHandlers
+  isGrouped?: boolean
+}) {
   switch (tab) {
     case 'canvas':
-      return <MultiTabCanvas panelDragHandlers={panelDragHandlers} />
+      return <MultiTabCanvas panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
     case 'editor':
-      return <MultiTabEditor panelDragHandlers={panelDragHandlers} />
+      return <MultiTabEditor panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
     case 'wiki':
-      return <WikiPanel panelDragHandlers={panelDragHandlers} />
+      return <WikiPanel panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
     case 'chapters':
-      return <ChapterPanel panelDragHandlers={panelDragHandlers} />
+      return <ChapterPanel panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
     case 'ai':
-      return <AIPanel panelDragHandlers={panelDragHandlers} />
+      return <AIPanel panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
     default:
       return null
   }
@@ -53,39 +55,53 @@ export function AppShell() {
   const {
     focusMode,
     showOpenFilesPanel,
-    openTabs,
+    panelGroups,
     canvasWidth,
     wikiWidth,
     openFilesWidth,
     setCanvasWidth,
     setWikiWidth,
     setOpenFilesWidth,
-    reorderTabs,
+    setActiveGroupTab,
+    moveTabToGroup,
+    splitTabToNewGroup,
+    reorderGroups,
+    toggleTab,
+    togglePanelPin,
   } = useEditorStore()
 
-  const [showStats, setShowStats] = useState(false)
-  const [showTimeline, setShowTimeline] = useState(false)
-  const [showExport, setShowExport] = useState(false)
   const [showProjectDialog, setShowProjectDialog] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('general')
 
-  // Panel drag-to-reorder state
-  const [dragOverTab, setDragOverTab] = useState<PanelTab | null>(null)
-  const dragPanelRef = useRef<PanelTab | null>(null)
+  // Group drag-to-reorder state
+  const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null)
+  const [dragOverMerge, setDragOverMerge] = useState(false) // true = merge, false = reorder
+  const dragGroupRef = useRef<string | null>(null) // group being dragged
+  const dragTabRef = useRef<PanelTab | null>(null) // individual tab being dragged (for cross-group)
+
+  const openSettings = useCallback((section?: SettingsSection) => {
+    if (section) setSettingsSection(section)
+    setShowSettings(true)
+  }, [])
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
-    onToggleStats: () => setShowStats(prev => !prev),
-    onToggleTimeline: () => setShowTimeline(prev => !prev),
+    onOpenSettings: openSettings,
   })
 
-  // Filter to only layout panels
-  const layoutTabs = useMemo(
-    () => openTabs.filter(t => LAYOUT_PANELS.has(t)),
-    [openTabs],
+  // Filter groups to only layout panels
+  const layoutGroups = useMemo(
+    () => panelGroups
+      .map(g => ({
+        ...g,
+        tabs: g.tabs.filter(t => LAYOUT_PANELS.has(t)),
+      }))
+      .filter(g => g.tabs.length > 0),
+    [panelGroups],
   )
 
-  // canvasWidth → first panel, wikiWidth → last panel
+  // canvasWidth → first group, wikiWidth → last group
   const handleLeftResize = useCallback((delta: number) => {
     setCanvasWidth(Math.min(MAX_LEFT_WIDTH, Math.max(MIN_LEFT_WIDTH, canvasWidth + delta)))
   }, [canvasWidth, setCanvasWidth])
@@ -98,53 +114,105 @@ export function AppShell() {
     setOpenFilesWidth(Math.min(MAX_OPENFILES_WIDTH, Math.max(MIN_OPENFILES_WIDTH, openFilesWidth + delta)))
   }, [openFilesWidth, setOpenFilesWidth])
 
-  // Panel drag handlers
-  const handlePanelDragStart = (e: React.DragEvent, tab: PanelTab) => {
-    dragPanelRef.current = tab
+  // ── Group-level drag (reorder groups / merge) ──
+  const handleGroupDragStart = (e: React.DragEvent, groupId: string) => {
+    dragGroupRef.current = groupId
+    dragTabRef.current = null
     e.dataTransfer.effectAllowed = 'move'
-    // Use a transparent drag image so it doesn't look heavy
+    e.dataTransfer.setData('text/plain', `group:${groupId}`)
     const img = new Image()
     img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
     e.dataTransfer.setDragImage(img, 0, 0)
   }
 
-  const handlePanelDragOver = (e: React.DragEvent, tab: PanelTab) => {
-    if (!dragPanelRef.current || dragPanelRef.current === tab) return
+  // ── Tab-level drag (from PanelGroupTabBar, cross-group) ──
+  const handleTabDragStart = (e: React.DragEvent, tab: PanelTab) => {
+    dragTabRef.current = tab
+    dragGroupRef.current = null
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', `tab:${tab}`)
+    const img = new Image()
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+    e.dataTransfer.setDragImage(img, 0, 0)
+  }
+
+  const handleGroupDragOver = (e: React.DragEvent, groupId: string) => {
+    const draggedGroupId = dragGroupRef.current
+    const draggedTab = dragTabRef.current
+    if (!draggedGroupId && !draggedTab) return
+    // Don't allow dropping group on itself
+    if (draggedGroupId && draggedGroupId === groupId) return
+
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-    setDragOverTab(tab)
+
+    // Determine merge vs split/reorder based on mouse position
+    // Edge zone (8% each side) = split/reorder, center 84% = merge
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const relX = (e.clientX - rect.left) / rect.width
+    const isMerge = relX > 0.08 && relX < 0.92
+
+    setDragOverGroupId(groupId)
+    setDragOverMerge(isMerge)
   }
 
-  const handlePanelDrop = (e: React.DragEvent, dropTab: PanelTab) => {
+  const handleGroupDrop = (e: React.DragEvent, dropGroupId: string) => {
     e.preventDefault()
-    setDragOverTab(null)
-    const dragged = dragPanelRef.current
-    if (!dragged || dragged === dropTab) return
+    setDragOverGroupId(null)
+    setDragOverMerge(false)
 
-    const newTabs = [...openTabs]
-    const fromIdx = newTabs.indexOf(dragged)
-    const toIdx = newTabs.indexOf(dropTab)
-    if (fromIdx < 0 || toIdx < 0) return
+    const draggedGroupId = dragGroupRef.current
+    const draggedTab = dragTabRef.current
 
-    newTabs.splice(fromIdx, 1)
-    newTabs.splice(toIdx, 0, dragged)
-    reorderTabs(newTabs)
-    dragPanelRef.current = null
+    // Compute merge vs split from mouse position (avoid stale React state)
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const relX = (e.clientX - rect.left) / rect.width
+    const shouldMerge = relX > 0.08 && relX < 0.92
+
+    if (draggedTab) {
+      if (shouldMerge) {
+        // Tab dragged to center → merge into target group
+        moveTabToGroup(draggedTab, dropGroupId)
+      } else {
+        // Tab dragged to edge → split to a new group adjacent to the drop target
+        // Use panelGroups (store) for index since splitTabToNewGroup operates on it
+        const dropIdx = panelGroups.findIndex(g => g.id === dropGroupId)
+        const insertIdx = relX <= 0.08 ? dropIdx : dropIdx + 1
+        splitTabToNewGroup(draggedTab, insertIdx)
+      }
+      dragTabRef.current = null
+      return
+    }
+
+    if (draggedGroupId && draggedGroupId !== dropGroupId) {
+      if (shouldMerge) {
+        // Merge: move all tabs from dragged group into drop group
+        const sourceGroup = panelGroups.find(g => g.id === draggedGroupId)
+        if (sourceGroup) {
+          for (const tab of sourceGroup.tabs) {
+            moveTabToGroup(tab, dropGroupId)
+          }
+        }
+      } else {
+        // Reorder groups
+        reorderGroups(draggedGroupId, dropGroupId)
+      }
+      dragGroupRef.current = null
+    }
   }
 
-  const handlePanelDragEnd = () => {
-    setDragOverTab(null)
-    dragPanelRef.current = null
+  const handleDragEnd = () => {
+    setDragOverGroupId(null)
+    setDragOverMerge(false)
+    dragGroupRef.current = null
+    dragTabRef.current = null
   }
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-bg-primary text-text-primary">
       <TopBar
-        onToggleStats={() => setShowStats(true)}
-        onToggleTimeline={() => setShowTimeline(true)}
-        onToggleExport={() => setShowExport(true)}
         onOpenProjectDialog={() => setShowProjectDialog(true)}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={() => openSettings()}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -168,12 +236,13 @@ export function AppShell() {
           </div>
         )}
 
-        {/* Dynamic panel layout based on openTabs order */}
-        {!focusMode && layoutTabs.map((tab, index) => {
-          const total = layoutTabs.length
+        {/* Dynamic panel layout based on panelGroups */}
+        {!focusMode && layoutGroups.map((group, index) => {
+          const total = layoutGroups.length
           const isSolo = total === 1
           const isFirst = index === 0
           const isLast = index === total - 1
+          const isMultiTab = group.tabs.length > 1
 
           let style: React.CSSProperties
           if (isSolo) {
@@ -183,11 +252,10 @@ export function AppShell() {
           } else if (isLast && total >= 3) {
             style = { width: wikiWidth }
           } else {
-            // Middle panels OR last panel when only 2 panels: fill remaining space
             style = { flex: 1, minWidth: 200 }
           }
 
-          const isDragOver = dragOverTab === tab
+          const isDragOver = dragOverGroupId === group.id
 
           const borderClass = cn(
             'flex flex-col shrink-0 overflow-hidden bg-bg-primary h-full min-h-0 relative',
@@ -195,8 +263,8 @@ export function AppShell() {
           )
 
           return (
-            <Fragment key={tab}>
-              {/* Resize handle between panels */}
+            <Fragment key={group.id}>
+              {/* Resize handle between groups */}
               {index === 1 && total >= 2 && (
                 <ResizeHandle side="right" onResize={handleLeftResize} />
               )}
@@ -207,20 +275,48 @@ export function AppShell() {
               <div
                 className={borderClass}
                 style={style}
-                onDragOver={(e) => handlePanelDragOver(e, tab)}
-                onDragLeave={() => setDragOverTab(null)}
-                onDrop={(e) => handlePanelDrop(e, tab)}
+                data-panel={group.activeTab}
+                onDragOver={(e) => handleGroupDragOver(e, group.id)}
+                onDragLeave={(e) => {
+                  // Only clear if actually leaving this container (not entering a child)
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDragOverGroupId(null)
+                    setDragOverMerge(false)
+                  }
+                }}
+                onDrop={(e) => handleGroupDrop(e, group.id)}
               >
                 {/* Drop indicator overlay */}
-                {isDragOver && (
-                  <div className="absolute inset-0 bg-accent/5 border-2 border-accent/30 border-dashed rounded z-50 pointer-events-none" />
+                {isDragOver && dragOverMerge && (
+                  <div className="absolute inset-0 z-50 pointer-events-none rounded bg-accent/10 border-2 border-accent/50 border-dashed" />
+                )}
+                {isDragOver && !dragOverMerge && (
+                  <div className="absolute inset-y-0 left-0 w-1 z-50 pointer-events-none bg-accent rounded-full" />
+                )}
+
+                {/* Group tab bar (only when 2+ panels stacked) */}
+                {isMultiTab && (
+                  <PanelGroupTabBar
+                    group={group}
+                    onSelectTab={(tab) => setActiveGroupTab(group.id, tab)}
+                    onCloseTab={(tab) => splitTabToNewGroup(tab)}
+                    groupDragHandlers={{
+                      onDragStart: (e) => handleGroupDragStart(e, group.id),
+                      onDragEnd: handleDragEnd,
+                    }}
+                    onTabDragStart={(e, tab) => handleTabDragStart(e, tab)}
+                    onTabDragEnd={handleDragEnd}
+                    onDuplicateTab={(tab) => splitTabToNewGroup(tab)}
+                    onTogglePanelPin={(tab) => togglePanelPin(tab)}
+                  />
                 )}
 
                 <PanelContent
-                  tab={tab}
-                  panelDragHandlers={{
-                    onDragStart: (e) => handlePanelDragStart(e, tab),
-                    onDragEnd: handlePanelDragEnd,
+                  tab={group.activeTab}
+                  isGrouped={isMultiTab}
+                  panelDragHandlers={isMultiTab ? undefined : {
+                    onDragStart: (e) => handleGroupDragStart(e, group.id),
+                    onDragEnd: handleDragEnd,
                   }}
                 />
               </div>
@@ -231,12 +327,9 @@ export function AppShell() {
 
       <BottomBar />
 
-      {/* Popups / Panels */}
-      {showStats && <StatsPopup onClose={() => setShowStats(false)} />}
-      {showTimeline && <TimelinePanel onClose={() => setShowTimeline(false)} />}
-      {showExport && <ExportPopup onClose={() => setShowExport(false)} />}
+      {/* Dialogs */}
       <ProjectDialog open={showProjectDialog} onClose={() => setShowProjectDialog(false)} />
-      <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} initialSection={settingsSection} />
     </div>
   )
 }

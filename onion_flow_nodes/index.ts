@@ -7,7 +7,8 @@
  * Usage:
  *   import { NODE_REGISTRY, initNodeRegistry, getNodeDefinition } from '@/onion_flow_nodes'
  */
-export { type NodeTypeDefinition, type HandleDefinition, NODE_CATEGORY_COLORS } from './types'
+export { type NodeTypeDefinition, type HandleDefinition, NODE_CATEGORY_COLORS, NODE_TAG_LABELS } from './types'
+export { PLOT_GENRE_OPTIONS, PLOT_STRUCTURE_OPTIONS, GENRE_GROUPS, type PlotOption } from './plotOptions'
 import { BUILTIN_NODES } from './builtins'
 import { loadCustomNodes } from './loader'
 import type { NodeTypeDefinition } from './types'

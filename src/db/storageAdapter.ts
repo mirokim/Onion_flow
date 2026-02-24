@@ -4,6 +4,7 @@ import type {
   AIConversation, AIMessage, Item, ReferenceData,
   OnionNode, CanvasNode, CanvasWire, WikiEntry,
   EmotionLog, StorySummary, DailyStats, TimelineSnapshot,
+  TrashItem,
 } from '@/types'
 import { SQLiteStorageAdapter } from './sqliteStorageAdapter'
 
@@ -135,6 +136,13 @@ export interface StorageAdapter {
   insertTimelineSnapshot(snapshot: TimelineSnapshot): Promise<void>
   deleteTimelineSnapshot(id: string): Promise<void>
   deleteTimelineSnapshotsByProject(projectId: string): Promise<void>
+
+  // ── Trash / Recycle Bin ──
+  fetchTrashItems(projectId: string): Promise<TrashItem[]>
+  insertTrashItem(item: TrashItem): Promise<void>
+  deleteTrashItem(id: string): Promise<void>
+  purgeExpiredTrash(): Promise<number>
+  deleteTrashByProject(projectId: string): Promise<void>
 
   // Transaction support
   transaction<T>(fn: () => Promise<T>): Promise<T>

@@ -6,7 +6,7 @@ import {
   Sparkles, Cpu, Globe2, Landmark, Palette, BookOpen,
   Church, Coins, Languages, Bug, Users, HeartPulse,
   Package, UserCircle, Sword, FolderOpen,
-  Brain, Eye, Clock, Zap, FileText,
+  Clock, Zap, FileText, GitBranch,
   ChevronDown, ChevronRight,
 } from 'lucide-react'
 
@@ -37,9 +37,8 @@ const WIKI_CATEGORY_GROUPS: CategoryGroup[] = [
     defaultCollapsed: false,
     categories: [
       { key: 'character', icon: <UserCircle className="w-3 h-3" />, label: 'Character', labelKo: '캐릭터' },
-      { key: 'character_personality', icon: <Brain className="w-3 h-3" />, label: 'Personality', labelKo: '성격' },
-      { key: 'character_appearance', icon: <Eye className="w-3 h-3" />, label: 'Appearance', labelKo: '외모' },
       { key: 'character_memory', icon: <Clock className="w-3 h-3" />, label: 'Memory', labelKo: '기억' },
+      { key: 'character_motivation', icon: <HeartPulse className="w-3 h-3" />, label: 'Motivation', labelKo: '동기' },
     ],
   },
   {
@@ -50,6 +49,7 @@ const WIKI_CATEGORY_GROUPS: CategoryGroup[] = [
     categories: [
       { key: 'event', icon: <Zap className="w-3 h-3" />, label: 'Event', labelKo: '사건/환경' },
       { key: 'story', icon: <FileText className="w-3 h-3" />, label: 'Story', labelKo: '스토리' },
+      { key: 'plot', icon: <GitBranch className="w-3 h-3" />, label: 'Plot', labelKo: '플롯' },
     ],
   },
   {

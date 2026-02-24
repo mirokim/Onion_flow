@@ -3,7 +3,7 @@
  * Looks up the node definition from the registry and renders handles/header dynamically.
  * Shows execution output (ComfyUI-style) when available.
  */
-import { memo, useMemo } from 'react'
+import { memo, useMemo, useState, useRef, useEffect, useCallback } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { getNodeDefinition } from '../index'
 import { useCanvasStore, type NodeOutput } from '@/stores/canvasStore'
@@ -14,6 +14,8 @@ import type { WikiEntry } from '@/types'
 import { ImageLoadBody } from './ImageLoadBody'
 import { DocumentLoadBody } from './DocumentLoadBody'
 import { CharacterNodeBody } from './CharacterNodeBody'
+import { SwitchNodeBody } from './SwitchNodeBody'
+import { PLOT_GENRE_OPTIONS, PLOT_STRUCTURE_OPTIONS, GENRE_GROUPS } from '../index'
 
 interface BaseNodeData {
   label?: string
@@ -22,14 +24,122 @@ interface BaseNodeData {
   [key: string]: any
 }
 
+/**
+ * IME-safe textarea for canvas nodes.
+ * Uses local state to buffer input so Korean/CJK composition is not interrupted.
+ * Flushes to the store on composition end and on debounced idle.
+ */
+function NodeTextarea({ nodeId, field, value, placeholder, rows = 3, className }: {
+  nodeId: string; field: string; value: string
+  placeholder?: string; rows?: number; className?: string
+}) {
+  const [local, setLocal] = useState(value)
+  const composingRef = useRef(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Sync from store when external value changes (e.g., undo/redo)
+  useEffect(() => {
+    if (!composingRef.current) setLocal(value)
+  }, [value])
+
+  const flush = useCallback((v: string) => {
+    useCanvasStore.getState().updateNodeData(nodeId, { [field]: v })
+  }, [nodeId, field])
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    e.stopPropagation()
+    const v = e.target.value
+    setLocal(v)
+    // During composition, don't flush to store
+    if (!composingRef.current) {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => flush(v), 300)
+    }
+  }
+
+  const handleCompositionStart = () => { composingRef.current = true }
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    composingRef.current = false
+    const v = (e.target as HTMLTextAreaElement).value
+    setLocal(v)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => flush(v), 300)
+  }
+
+  // Flush on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      // Use ref's latest local value
+    }
+  }, [])
+
+  return (
+    <textarea
+      value={local}
+      onChange={handleChange}
+      onCompositionStart={handleCompositionStart}
+      onCompositionEnd={handleCompositionEnd}
+      onBlur={() => { if (timerRef.current) clearTimeout(timerRef.current); flush(local) }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      placeholder={placeholder}
+      rows={rows}
+      className={className}
+    />
+  )
+}
+
 /** Map node types to their wiki category for wiki-linked nodes */
 const WIKI_CATEGORY_MAP: Record<string, WikiCategory | 'all'> = {
   character: 'character',
-  personality: 'character_personality',
-  appearance: 'character_appearance',
   memory: 'character_memory',
+  motivation: 'character_motivation',
   event: 'event',
   wiki: 'all',
+}
+
+const DEFAULT_READER_PERSONAS = ['사이다패스', '설정덕후', '감성독자', '비평가', '라이트유저']
+
+function VirtualReaderBody({ data, nodeId }: { data: Record<string, any>; nodeId: string }) {
+  const selectedPersonas = (data.selectedPersonas || data.personas || DEFAULT_READER_PERSONAS.slice(0, 3)) as string[]
+
+  const togglePersona = (persona: string) => {
+    const current = new Set(selectedPersonas)
+    if (current.has(persona)) {
+      current.delete(persona)
+    } else {
+      current.add(persona)
+    }
+    useCanvasStore.getState().updateNodeData(nodeId, { selectedPersonas: [...current] })
+  }
+
+  return (
+    <div className="mt-1.5">
+      <label className="block text-[9px] text-text-muted mb-1">독자 페르소나</label>
+      <div className="flex flex-wrap gap-1">
+        {DEFAULT_READER_PERSONAS.map(persona => {
+          const isSelected = selectedPersonas.includes(persona)
+          return (
+            <button
+              key={persona}
+              onClick={(e) => { e.stopPropagation(); togglePersona(persona) }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className={cn(
+                'px-1.5 py-0.5 rounded text-[9px] transition-all border',
+                isSelected
+                  ? 'bg-accent/20 text-accent border-accent/30 font-semibold'
+                  : 'bg-bg-primary text-text-muted border-border hover:border-accent/30',
+              )}
+            >
+              {persona}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData }) {
@@ -132,15 +242,111 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
           </div>
         )}
 
-        {/* Character: Position + embedded personality/appearance/memory cards */}
+        {/* Character: wiki-linked info preview */}
         {data.nodeType === 'character' && data.nodeId && (
           <CharacterNodeBody data={data} nodeId={data.nodeId} />
         )}
 
-        {/* Plot: Description display */}
-        {data.nodeType?.startsWith('plot_') && data.description && (
-          <div className="mt-1.5">
-            <p className="text-[10px] text-text-muted leading-relaxed">{data.description}</p>
+        {/* Switch: input selector */}
+        {data.nodeType === 'switch' && data.nodeId && (
+          <SwitchNodeBody data={data} nodeId={data.nodeId} />
+        )}
+
+        {/* Plot Context: unified genre + structure + wiki entry with 2-line preview */}
+        {data.nodeType === 'plot_context' && (
+          <div className="mt-1.5 space-y-1.5">
+            {/* Genre dropdown */}
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">플롯 장르</label>
+              <select
+                value={data.selectedGenre || ''}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  if (data.nodeId) {
+                    useCanvasStore.getState().updateNodeData(data.nodeId, { selectedGenre: e.target.value || null })
+                  }
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="">장르 선택...</option>
+                {GENRE_GROUPS.map(grp => (
+                  <optgroup key={grp.key} label={grp.label}>
+                    {PLOT_GENRE_OPTIONS.filter(o => o.group === grp.key).map(opt => (
+                      <option key={opt.id} value={opt.id}>{opt.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              {data.selectedGenre && (() => {
+                const sel = PLOT_GENRE_OPTIONS.find(o => o.id === data.selectedGenre)
+                return sel ? (
+                  <p className="mt-0.5 text-[9px] text-text-muted leading-relaxed bg-bg-primary/50 rounded px-1.5 py-0.5">{sel.description}</p>
+                ) : null
+              })()}
+            </div>
+
+            {/* Structure dropdown */}
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">플롯 형식</label>
+              <select
+                value={data.selectedStructure || ''}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  if (data.nodeId) {
+                    useCanvasStore.getState().updateNodeData(data.nodeId, { selectedStructure: e.target.value || null })
+                  }
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="">형식 선택...</option>
+                {PLOT_STRUCTURE_OPTIONS.map(opt => (
+                  <option key={opt.id} value={opt.id}>{opt.label}</option>
+                ))}
+              </select>
+              {data.selectedStructure && (() => {
+                const sel = PLOT_STRUCTURE_OPTIONS.find(o => o.id === data.selectedStructure)
+                return sel ? (
+                  <p className="mt-0.5 text-[9px] text-text-muted leading-relaxed bg-bg-primary/50 rounded px-1.5 py-0.5">{sel.description}</p>
+                ) : null
+              })()}
+            </div>
+
+            {/* Wiki entry selector with 2-line preview */}
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">플롯</label>
+              <select
+                value={data.wikiEntryId || ''}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  if (data.nodeId) {
+                    useCanvasStore.getState().updateNodeData(data.nodeId, { wikiEntryId: e.target.value || null })
+                  }
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="">플롯 위키 항목...</option>
+                {allWikiEntries.filter(e => e.category === 'plot').map(entry => (
+                  <option key={entry.id} value={entry.id}>{entry.title || 'Untitled'}</option>
+                ))}
+              </select>
+              {data.wikiEntryId && (() => {
+                const plotEntry = allWikiEntries.find(e => e.id === data.wikiEntryId)
+                if (!plotEntry?.content) return null
+                const lines = plotEntry.content.split('\n').filter(l => l.trim()).slice(0, 2)
+                const preview = lines.join('\n')
+                return (
+                  <p className="mt-0.5 text-[9px] text-text-muted leading-relaxed bg-bg-primary/50 rounded px-1.5 py-1 whitespace-pre-line line-clamp-2">
+                    {preview.length > 120 ? preview.slice(0, 120) + '...' : preview}
+                  </p>
+                )
+              })()}
+            </div>
           </div>
         )}
 
@@ -154,9 +360,121 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
           <DocumentLoadBody data={data} nodeId={data.nodeId} selected={!!selected} />
         )}
 
-        {/* Storyteller: Provider dropdown */}
+        {/* POV Control: perspective type + focus character */}
+        {data.nodeType === 'pov' && data.nodeId && (
+          <div className="mt-1.5 space-y-1.5">
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">시점</label>
+              <select
+                value={data.povType || 'third_limited'}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  useCanvasStore.getState().updateNodeData(data.nodeId!, { povType: e.target.value })
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="first">1인칭</option>
+                <option value="third_limited">3인칭 제한</option>
+                <option value="third_omniscient">3인칭 전지적</option>
+                <option value="second">2인칭</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">초점 캐릭터 (선택)</label>
+              <select
+                value={data.characterId || ''}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  useCanvasStore.getState().updateNodeData(data.nodeId!, { characterId: e.target.value || null })
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="">없음</option>
+                {allWikiEntries.filter(e => e.category === 'character').map(entry => (
+                  <option key={entry.id} value={entry.id}>{entry.title || 'Untitled'}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Pacing: tension slider + speed */}
+        {data.nodeType === 'pacing' && data.nodeId && (
+          <div className="mt-1.5 space-y-1.5">
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">
+                긴장감: <span className="text-text-primary font-semibold">{data.tension ?? 5}/10</span>
+              </label>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={1}
+                value={data.tension ?? 5}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  useCanvasStore.getState().updateNodeData(data.nodeId!, { tension: Number(e.target.value) })
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full h-1.5 accent-accent cursor-pointer"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">호흡</label>
+              <select
+                value={data.speed || 'normal'}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  useCanvasStore.getState().updateNodeData(data.nodeId!, { speed: e.target.value })
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="slow">느림 — 묘사 중심, 여운</option>
+                <option value="normal">보통 — 균형 잡힌 서술</option>
+                <option value="fast">빠름 — 짧은 문장, 긴박감</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Style Transfer: sample text + author name */}
+        {data.nodeType === 'style_transfer' && data.nodeId && (
+          <div className="mt-1.5 space-y-1.5">
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">참고 작가</label>
+              <NodeTextarea
+                nodeId={data.nodeId}
+                field="authorName"
+                value={data.authorName || ''}
+                placeholder="예: 한강, 무라카미 하루키..."
+                rows={1}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent resize-none leading-relaxed placeholder:text-text-muted/50"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">문체 샘플</label>
+              <NodeTextarea
+                nodeId={data.nodeId}
+                field="sampleText"
+                value={data.sampleText || ''}
+                placeholder="학습시킬 문체 샘플 텍스트를 붙여넣기..."
+                rows={4}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent resize-y min-h-[60px] max-h-[160px] leading-relaxed placeholder:text-text-muted/50"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Storyteller: Provider dropdown + prompt */}
         {data.nodeType === 'storyteller' && (
-          <div className="mt-1.5">
+          <div className="mt-1.5 space-y-1">
             <select
               value={data.provider || ''}
               onChange={(e) => {
@@ -176,11 +494,141 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
               <option value="grok">Grok</option>
               <option value="openai">GPT</option>
             </select>
+            {data.nodeId && (
+              <NodeTextarea
+                nodeId={data.nodeId}
+                field="prompt"
+                value={data.prompt || ''}
+                placeholder="추가 요구사항 입력..."
+                rows={3}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent resize-y min-h-[40px] max-h-[120px] leading-relaxed placeholder:text-text-muted/50"
+              />
+            )}
+          </div>
+        )}
+
+        {/* Summarizer: max tokens control */}
+        {data.nodeType === 'summarizer' && data.nodeId && (
+          <div className="mt-1.5">
+            <label className="block text-[9px] text-text-muted mb-0.5">
+              최대 토큰: <span className="text-text-primary font-semibold">{data.maxTokens ?? 500}</span>
+            </label>
+            <input
+              type="range"
+              min={100}
+              max={2000}
+              step={100}
+              value={data.maxTokens ?? 500}
+              onChange={(e) => {
+                e.stopPropagation()
+                useCanvasStore.getState().updateNodeData(data.nodeId!, { maxTokens: Number(e.target.value) })
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="w-full h-1.5 accent-accent cursor-pointer"
+            />
+          </div>
+        )}
+
+        {/* Tikitaka: topic + turns */}
+        {data.nodeType === 'tikitaka' && data.nodeId && (
+          <div className="mt-1.5 space-y-1.5">
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">대화 주제</label>
+              <NodeTextarea
+                nodeId={data.nodeId}
+                field="topic"
+                value={data.topic || ''}
+                placeholder="캐릭터들이 대화할 주제..."
+                rows={2}
+                className="w-full bg-bg-primary border border-border rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent resize-y min-h-[30px] max-h-[80px] leading-relaxed placeholder:text-text-muted/50"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] text-text-muted mb-0.5">
+                대화 턴 수: <span className="text-text-primary font-semibold">{data.turns ?? 10}</span>
+              </label>
+              <input
+                type="range"
+                min={2}
+                max={30}
+                step={1}
+                value={data.turns ?? 10}
+                onChange={(e) => {
+                  e.stopPropagation()
+                  useCanvasStore.getState().updateNodeData(data.nodeId!, { turns: Number(e.target.value) })
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="w-full h-1.5 accent-accent cursor-pointer"
+              />
+            </div>
+            <p className="text-[9px] text-text-muted/60">
+              캐릭터 노드를 연결하면 자동으로 캐릭터가 추가됩니다
+            </p>
+          </div>
+        )}
+
+        {/* Cliffhanger: count control */}
+        {data.nodeType === 'cliffhanger' && data.nodeId && (
+          <div className="mt-1.5">
+            <label className="block text-[9px] text-text-muted mb-0.5">
+              제안 수: <span className="text-text-primary font-semibold">{data.count ?? 3}</span>
+            </label>
+            <input
+              type="range"
+              min={1}
+              max={5}
+              step={1}
+              value={data.count ?? 3}
+              onChange={(e) => {
+                e.stopPropagation()
+                useCanvasStore.getState().updateNodeData(data.nodeId!, { count: Number(e.target.value) })
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="w-full h-1.5 accent-accent cursor-pointer"
+            />
+          </div>
+        )}
+
+        {/* Virtual Reader: persona selection */}
+        {data.nodeType === 'virtual_reader' && data.nodeId && (
+          <VirtualReaderBody data={data} nodeId={data.nodeId} />
+        )}
+
+        {/* What-If: scene input */}
+        {data.nodeType === 'what_if' && data.nodeId && (
+          <div className="mt-1.5">
+            <label className="block text-[9px] text-text-muted mb-0.5">분기 장면 (선택)</label>
+            <NodeTextarea
+              nodeId={data.nodeId}
+              field="scene"
+              value={data.scene || ''}
+              placeholder="비워두면 입력 데이터를 사용합니다..."
+              rows={2}
+              className="w-full bg-bg-primary border border-border rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent resize-y min-h-[30px] max-h-[80px] leading-relaxed placeholder:text-text-muted/50"
+            />
+          </div>
+        )}
+
+        {/* Show Don't Tell: input text */}
+        {data.nodeType === 'show_dont_tell' && data.nodeId && (
+          <div className="mt-1.5">
+            <label className="block text-[9px] text-text-muted mb-0.5">변환할 텍스트 (선택)</label>
+            <NodeTextarea
+              nodeId={data.nodeId}
+              field="inputText"
+              value={data.inputText || ''}
+              placeholder="비워두면 입력 데이터를 사용합니다..."
+              rows={2}
+              className="w-full bg-bg-primary border border-border rounded px-1.5 py-1 text-[10px] text-text-primary outline-none focus:border-accent resize-y min-h-[30px] max-h-[80px] leading-relaxed placeholder:text-text-muted/50"
+            />
           </div>
         )}
       </div>
 
-      {/* Execution Output */}
+      {/* Execution Output (storyteller hides completed text — result goes to editor) */}
       {nodeOutput && nodeOutput.status !== 'idle' && nodeOutput.status !== 'queued' && (
         <div className="border-t border-border">
           {nodeOutput.status === 'running' && (
@@ -193,13 +641,20 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
             </div>
           )}
 
-          {nodeOutput.status === 'completed' && nodeOutput.content && (
+          {nodeOutput.status === 'completed' && data.nodeType !== 'storyteller' && nodeOutput.content && (
             <div className="px-3 py-2 max-h-[100px] overflow-y-auto">
               <p className="text-[10px] text-text-secondary whitespace-pre-wrap break-words leading-relaxed">
                 {nodeOutput.content.length > 300
                   ? nodeOutput.content.slice(0, 300) + '...'
                   : nodeOutput.content}
               </p>
+            </div>
+          )}
+
+          {nodeOutput.status === 'completed' && data.nodeType === 'storyteller' && (
+            <div className="px-3 py-1.5 text-[10px] text-green-400 flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+              생성 완료
             </div>
           )}
 

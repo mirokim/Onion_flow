@@ -35,6 +35,7 @@
     "@tiptap/extension-highlight": "^3.19.0",
     "@tiptap/extension-horizontal-rule": "^3.19.0",
     "@tiptap/extension-link": "^3.19.0",
+    "@tiptap/extension-mention": "^3.20.0",
     "@tiptap/extension-placeholder": "^3.19.0",
     "@tiptap/extension-text-align": "^3.20.0",
     "@tiptap/extension-text-style": "^3.19.0",
@@ -42,6 +43,7 @@
     "@tiptap/pm": "^3.19.0",
     "@tiptap/react": "^3.19.0",
     "@tiptap/starter-kit": "^3.19.0",
+    "@tiptap/suggestion": "^3.20.0",
     "@xyflow/react": "^12.10.0",
     "clsx": "^2.1.1",
     "docx": "^9.5.1",
@@ -55,6 +57,7 @@
     "recharts": "^3.7.0",
     "sql.js": "^1.14.0",
     "tailwind-merge": "^3.4.0",
+    "tippy.js": "^6.3.7",
     "zustand": "^5.0.11"
   },
   "devDependencies": {

@@ -24,6 +24,13 @@ export interface CanvasInnerTab {
   isPinned: boolean
 }
 
+// Panel group for stacking multiple panels in the same column
+export interface PanelGroup {
+  id: string
+  tabs: PanelTab[]
+  activeTab: PanelTab
+}
+
 // File tree node for the virtual file explorer
 export interface FileTreeNode {
   id: string
@@ -44,7 +51,8 @@ interface EditorState {
   uiScale: UISizeScale
   focusMode: boolean
   showOpenFilesPanel: boolean
-  openTabs: PanelTab[]
+  openTabs: PanelTab[]          // derived from panelGroups (backward compat)
+  panelGroups: PanelGroup[]     // primary panel layout state
   canvasWidth: number
   wikiWidth: number
   openFilesWidth: number
@@ -80,6 +88,13 @@ interface EditorState {
   toggleOpenFilesPanel: () => void
   toggleTab: (tab: PanelTab) => void
   reorderTabs: (newOrder: PanelTab[]) => void
+  // Panel group actions
+  /** Activate a panel type within whichever group contains it */
+  activatePanel: (panel: PanelTab) => void
+  setActiveGroupTab: (groupId: string, tab: PanelTab) => void
+  moveTabToGroup: (tab: PanelTab, targetGroupId: string) => void
+  splitTabToNewGroup: (tab: PanelTab, insertIndex?: number) => void
+  reorderGroups: (fromId: string, toId: string) => void
   setCanvasWidth: (w: number) => void
   setWikiWidth: (w: number) => void
   setOpenFilesWidth: (w: number) => void
@@ -123,6 +138,10 @@ export const useEditorStore = create<EditorState>()(
       focusMode: false,
       showOpenFilesPanel: true,
       openTabs: ['canvas', 'editor'] as PanelTab[],
+      panelGroups: [
+        { id: 'default-canvas', tabs: ['canvas' as PanelTab], activeTab: 'canvas' as PanelTab },
+        { id: 'default-editor', tabs: ['editor' as PanelTab], activeTab: 'editor' as PanelTab },
+      ] as PanelGroup[],
       canvasWidth: 480,
       wikiWidth: 300,
       openFilesWidth: 180,
@@ -146,18 +165,85 @@ export const useEditorStore = create<EditorState>()(
       toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
       toggleOpenFilesPanel: () => set((s) => ({ showOpenFilesPanel: !s.showOpenFilesPanel })),
       toggleTab: (tab) => set((s) => {
-        const isOpen = s.openTabs.includes(tab)
+        const allOpen = s.panelGroups.flatMap(g => g.tabs)
+        const isOpen = allOpen.includes(tab)
         if (isOpen) {
-          if (s.openTabs.length <= 1) return s
-          return { openTabs: s.openTabs.filter(t => t !== tab) }
+          // Close: remove tab from its group
+          if (allOpen.length <= 1) return s // must keep at least 1
+          const groups = s.panelGroups
+            .map(g => {
+              if (!g.tabs.includes(tab)) return g
+              const newTabs = g.tabs.filter(t => t !== tab)
+              if (newTabs.length === 0) return null // group becomes empty
+              return { ...g, tabs: newTabs, activeTab: g.activeTab === tab ? newTabs[0] : g.activeTab }
+            })
+            .filter(Boolean) as PanelGroup[]
+          return { panelGroups: groups, openTabs: groups.flatMap(g => g.tabs) }
         } else {
-          // Maximum 5 layout panels can be open simultaneously
-          const MAX_PANELS = 5
-          if (s.openTabs.length >= MAX_PANELS) return s
-          return { openTabs: [...s.openTabs, tab] }
+          // Open: create new group at end
+          const MAX_OPEN = 5
+          if (allOpen.length >= MAX_OPEN) return s
+          const newGroup: PanelGroup = { id: generateId(), tabs: [tab], activeTab: tab }
+          const groups = [...s.panelGroups, newGroup]
+          return { panelGroups: groups, openTabs: groups.flatMap(g => g.tabs) }
         }
       }),
       reorderTabs: (newOrder) => set({ openTabs: newOrder }),
+
+      // ── Panel Group Actions ──
+      activatePanel: (panel) => set((s) => ({
+        panelGroups: s.panelGroups.map(g =>
+          g.tabs.includes(panel) ? { ...g, activeTab: panel } : g,
+        ),
+      })),
+
+      setActiveGroupTab: (groupId, tab) => set((s) => ({
+        panelGroups: s.panelGroups.map(g =>
+          g.id === groupId ? { ...g, activeTab: tab } : g,
+        ),
+      })),
+
+      moveTabToGroup: (tab, targetGroupId) => set((s) => {
+        // Remove tab from current group
+        let groups = s.panelGroups.map(g => {
+          if (!g.tabs.includes(tab)) return g
+          const newTabs = g.tabs.filter(t => t !== tab)
+          if (newTabs.length === 0) return null
+          return { ...g, tabs: newTabs, activeTab: g.activeTab === tab ? newTabs[0] : g.activeTab }
+        }).filter(Boolean) as PanelGroup[]
+        // Add tab to target group
+        groups = groups.map(g => {
+          if (g.id !== targetGroupId) return g
+          if (g.tabs.includes(tab)) return g // already there
+          return { ...g, tabs: [...g.tabs, tab], activeTab: tab }
+        })
+        return { panelGroups: groups, openTabs: groups.flatMap(g => g.tabs) }
+      }),
+
+      splitTabToNewGroup: (tab, insertIndex) => set((s) => {
+        // Remove tab from current group
+        let groups = s.panelGroups.map(g => {
+          if (!g.tabs.includes(tab)) return g
+          const newTabs = g.tabs.filter(t => t !== tab)
+          if (newTabs.length === 0) return null
+          return { ...g, tabs: newTabs, activeTab: g.activeTab === tab ? newTabs[0] : g.activeTab }
+        }).filter(Boolean) as PanelGroup[]
+        // Create new group
+        const newGroup: PanelGroup = { id: generateId(), tabs: [tab], activeTab: tab }
+        const idx = insertIndex ?? groups.length
+        groups.splice(idx, 0, newGroup)
+        return { panelGroups: groups, openTabs: groups.flatMap(g => g.tabs) }
+      }),
+
+      reorderGroups: (fromId, toId) => set((s) => {
+        const groups = [...s.panelGroups]
+        const fromIdx = groups.findIndex(g => g.id === fromId)
+        const toIdx = groups.findIndex(g => g.id === toId)
+        if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return s
+        const [moved] = groups.splice(fromIdx, 1)
+        groups.splice(toIdx, 0, moved)
+        return { panelGroups: groups, openTabs: groups.flatMap(g => g.tabs) }
+      }),
       setCanvasWidth: (canvasWidth) => set({ canvasWidth }),
       setWikiWidth: (wikiWidth) => set({ wikiWidth }),
       setOpenFilesWidth: (openFilesWidth) => set({ openFilesWidth }),
@@ -476,13 +562,14 @@ export const useEditorStore = create<EditorState>()(
     }),
     {
       name: 'onion-flow-editor',
-      version: 10,
+      version: 11,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         theme: state.theme,
         language: state.language,
         uiScale: state.uiScale,
         showOpenFilesPanel: state.showOpenFilesPanel,
+        panelGroups: state.panelGroups,
         openTabs: state.openTabs,
         canvasWidth: state.canvasWidth,
         wikiWidth: state.wikiWidth,
@@ -543,6 +630,25 @@ export const useEditorStore = create<EditorState>()(
         // v10: add pinnedPanels for panel-level pin
         if (version < 10) {
           persisted.pinnedPanels = persisted.pinnedPanels ?? []
+        }
+        // v11: convert openTabs → panelGroups (each tab becomes its own group)
+        if (version < 11) {
+          const oldTabs: PanelTab[] = persisted.openTabs ?? ['canvas', 'editor']
+          persisted.panelGroups = oldTabs
+            .filter((t: PanelTab) => t !== 'openfiles')
+            .map((t: PanelTab) => ({
+              id: `migrated-${t}`,
+              tabs: [t],
+              activeTab: t,
+            }))
+          if (persisted.panelGroups.length === 0) {
+            persisted.panelGroups = [
+              { id: 'migrated-canvas', tabs: ['canvas'], activeTab: 'canvas' },
+              { id: 'migrated-editor', tabs: ['editor'], activeTab: 'editor' },
+            ]
+          }
+          // Derive openTabs from panelGroups for backward compat
+          persisted.openTabs = persisted.panelGroups.flatMap((g: any) => g.tabs)
         }
         return persisted as EditorState
       },

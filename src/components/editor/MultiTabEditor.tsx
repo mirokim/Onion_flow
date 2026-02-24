@@ -10,9 +10,10 @@ import { BlockEditor } from './BlockEditor'
 
 interface MultiTabEditorProps {
   panelDragHandlers?: PanelDragHandlers
+  isGrouped?: boolean
 }
 
-export function MultiTabEditor({ panelDragHandlers }: MultiTabEditorProps) {
+export function MultiTabEditor({ panelDragHandlers, isGrouped }: MultiTabEditorProps) {
   const editorTabs = useEditorStore(s => s.editorTabs)
   const activeEditorTabId = useEditorStore(s => s.activeEditorTabId)
   const openEditorTab = useEditorStore(s => s.openEditorTab)
@@ -60,32 +61,56 @@ export function MultiTabEditor({ panelDragHandlers }: MultiTabEditorProps) {
     }
   }, [chapters])
 
-  const handleAddTab = () => {
+  const createChapter = useProjectStore(s => s.createChapter)
+  const currentProject = useProjectStore(s => s.currentProject)
+
+  const handleAddTab = async () => {
     // Open the first chapter that's not already open
     const openIds = new Set(editorTabs.map(t => t.targetId))
     const available = chapters.filter(c => c.type === 'chapter' && !openIds.has(c.id))
     if (available.length > 0) {
       openEditorTab(available[0].id, available[0].title)
       selectChapter(available[0].id)
+    } else if (currentProject) {
+      // All chapters open or none exist → create a new chapter
+      const ch = await createChapter(`챕터 ${chapters.length + 1}`)
+      selectChapter(ch.id)
     }
   }
 
   return (
     <div className="flex flex-col h-full">
-      <PanelTabBar
-        tabs={editorTabs}
-        activeTabId={activeEditorTabId}
-        onSelect={(tabId) => {
-          setActiveEditorTab(tabId)
-          const tab = editorTabs.find(t => t.id === tabId)
-          if (tab) selectChapter(tab.targetId)
-        }}
-        onClose={closeEditorTab}
-        onAdd={chapters.length > 0 ? handleAddTab : undefined}
-        onReorder={reorderEditorTabs}
-        onTogglePin={toggleEditorTabPin}
-        panelDragHandlers={panelDragHandlers}
-      />
+      {!isGrouped && (
+        <PanelTabBar
+          tabs={editorTabs}
+          activeTabId={activeEditorTabId}
+          onSelect={(tabId) => {
+            setActiveEditorTab(tabId)
+            const tab = editorTabs.find(t => t.id === tabId)
+            if (tab) selectChapter(tab.targetId)
+          }}
+          onClose={closeEditorTab}
+          onAdd={currentProject ? handleAddTab : undefined}
+          onReorder={reorderEditorTabs}
+          onTogglePin={toggleEditorTabPin}
+          panelDragHandlers={panelDragHandlers}
+          panelType="editor"
+          onRenameTab={(tabId) => {
+            const tab = editorTabs.find(t => t.id === tabId)
+            if (tab) {
+              const newLabel = prompt('탭 이름변경', tab.label)
+              if (newLabel && newLabel.trim()) {
+                useEditorStore.setState(s => ({
+                  editorTabs: s.editorTabs.map(t => t.id === tabId ? { ...t, label: newLabel.trim() } : t),
+                }))
+              }
+            }
+          }}
+          onDuplicateTab={() => {
+            useEditorStore.getState().splitTabToNewGroup('editor')
+          }}
+        />
+      )}
       <div className="flex-1 overflow-hidden">
         <BlockEditor />
       </div>
