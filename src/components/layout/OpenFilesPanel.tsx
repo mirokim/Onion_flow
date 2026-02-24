@@ -189,9 +189,9 @@ function FileTreeNodeComponent({
   }
 
   const icon = node.type === 'folder'
-    ? (node.isExpanded ? <FolderOpen className="w-3.5 h-3.5 shrink-0 text-accent/70" /> : <Folder className="w-3.5 h-3.5 shrink-0 text-accent/70" />)
+    ? (node.isExpanded ? <FolderOpen className="w-3.5 h-3.5 shrink-0 text-text-muted" /> : <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />)
     : node.type === 'canvas'
-      ? <LayoutGrid className="w-3.5 h-3.5 shrink-0 text-accent/70" />
+      ? <LayoutGrid className="w-3.5 h-3.5 shrink-0 text-text-muted" />
       : <FileText className="w-3.5 h-3.5 shrink-0 text-text-muted" />
 
   return (
@@ -203,8 +203,8 @@ function FileTreeNodeComponent({
         onDragLeave={() => setDragOverState(null)}
         onDrop={handleDrop}
         className={cn(
-          'group flex items-center gap-1 px-2 py-1 cursor-pointer transition-colors text-xs',
-          isActive ? 'bg-accent/20 text-accent' : 'hover:bg-bg-hover text-text-primary',
+          'group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors text-xs',
+          isActive ? 'bg-bg-hover/60 text-text-primary' : 'hover:bg-bg-hover text-text-primary',
           !isTargetOpen && node.type !== 'folder' && 'opacity-40',
           dragOverState === 'above' && 'border-t-2 border-accent',
           dragOverState === 'below' && 'border-b-2 border-accent',
@@ -560,7 +560,7 @@ export function OpenFilesPanel() {
   return (
     <div className="flex flex-col h-full bg-bg-primary">
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-1.5 py-1.5 border-b border-border shrink-0">
+      <div className="flex items-center gap-0.5 px-1.5 py-1.5 shrink-0">
         <button onClick={handleNewStoryflow} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 스토리플로우">
           <LayoutGrid className="w-3.5 h-3.5" />
         </button>

@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Send, Loader2, ChevronDown } from 'lucide-react'
+import { Send, Loader2, ChevronDown, Swords } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { PromptTemplate } from '@/types'
 
@@ -8,9 +8,11 @@ interface AIChatInputProps {
   onSend: (content: string) => void
   isLoading: boolean
   templates: PromptTemplate[]
+  onToggleDebate?: () => void
+  debateActive?: boolean
 }
 
-export function AIChatInput({ onSend, isLoading, templates }: AIChatInputProps) {
+export function AIChatInput({ onSend, isLoading, templates, onToggleDebate, debateActive }: AIChatInputProps) {
   const { t } = useTranslation()
   const [value, setValue] = useState('')
   const [showTemplates, setShowTemplates] = useState(false)
@@ -73,6 +75,20 @@ export function AIChatInput({ onSend, isLoading, templates }: AIChatInputProps) 
       )}
 
       <div className="flex items-end gap-1">
+        {/* Debate toggle */}
+        {onToggleDebate && (
+          <button
+            onClick={onToggleDebate}
+            className={cn(
+              'p-1.5 rounded transition shrink-0',
+              debateActive ? 'text-accent' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
+            )}
+            title={t('ai.debate', '토론')}
+          >
+            <Swords className="w-4 h-4" />
+          </button>
+        )}
+
         {/* Template toggle */}
         <button
           onClick={() => setShowTemplates(!showTemplates)}

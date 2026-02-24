@@ -413,6 +413,60 @@ export interface EntityVersion {
   createdAt: number
 }
 
+// ── Debate / Discussion (from Onion Ring) ──
+
+export type DiscussionMode = 'roundRobin' | 'freeDiscussion' | 'roleAssignment' | 'battle'
+export type DebateStatus = 'idle' | 'running' | 'paused' | 'completed' | 'stopped'
+
+export interface RoleConfig {
+  provider: AIProvider
+  role: string
+}
+
+export interface ReferenceFile {
+  id: string
+  filename: string
+  mimeType: string
+  size: number
+  dataUrl: string
+}
+
+export interface DiscussionConfig {
+  mode: DiscussionMode
+  topic: string
+  maxRounds: number
+  participants: AIProvider[]
+  roles: RoleConfig[]
+  judgeProvider?: AIProvider
+  referenceText: string
+  useReference: boolean
+  referenceFiles: ReferenceFile[]
+  pacing: { mode: 'auto' | 'manual'; autoDelaySeconds: number }
+}
+
+export interface DiscussionMessage {
+  id: string
+  provider: AIProvider | 'user'
+  content: string
+  round: number
+  timestamp: number
+  error?: string
+  files?: ReferenceFile[]
+  messageType?: 'normal' | 'judge-evaluation'
+  roleName?: string
+}
+
+export interface DebateCallbacks {
+  onMessage: (msg: DiscussionMessage) => void
+  onStatusChange: (status: DebateStatus) => void
+  onRoundChange: (round: number, turnIndex: number) => void
+  onLoadingChange: (provider: AIProvider | null) => void
+  onCountdownTick: (secondsRemaining: number) => void
+  waitForNextTurn: () => Promise<void>
+  getStatus: () => DebateStatus
+  getMessages: () => DiscussionMessage[]
+}
+
 // ── UI Types ──
 
 export type SidebarTab = 'projects' | 'chapters' | 'search' | 'onionMap'
