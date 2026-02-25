@@ -24,21 +24,28 @@ export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasP
   const toggleCanvasTabPin = useEditorStore(s => s.toggleCanvasTabPin)
 
   const warpToDepth = useCanvasStore(s => s.warpToDepth)
+  const setDepthPath = useCanvasStore(s => s.setDepthPath)
 
   const handleSelectTab = (tabId: string) => {
     setActiveCanvasTab(tabId)
     const tab = canvasTabs.find(t => t.id === tabId)
     if (tab) {
-      // If root tab, warp to depth 0 (root)
       if (tab.targetId === null) {
+        // Root tab → warp to depth 0 (root)
         warpToDepth(0)
+      } else {
+        // Non-root tab → set depth to tab's targetId so it shows its own nodes
+        setDepthPath([tab.targetId])
       }
     }
   }
 
   const handleAddTab = () => {
     // Use a unique ID so each + click creates a new tab (instead of focusing the existing root)
-    openCanvasTab(generateId(), `Canvas ${canvasTabs.length + 1}`)
+    const newTargetId = generateId()
+    openCanvasTab(newTargetId, `Canvas ${canvasTabs.length + 1}`)
+    // Set depth to the new tab's targetId so the canvas shows empty (no existing nodes)
+    setDepthPath([newTargetId])
   }
 
   return (

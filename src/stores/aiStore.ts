@@ -448,7 +448,7 @@ export const useAIStore = create<AIState>()(
 
 // ── Helper: Send message to a single AI provider ──
 
-const MAX_TOOL_ITERATIONS = 10
+const MAX_TOOL_ITERATIONS = 6
 
 type StoreGet = () => AIState
 type StoreSet = (fn: (s: AIState) => Partial<AIState>) => void
@@ -508,6 +508,8 @@ async function sendToProvider(
     // Call AI provider
     let response: ProviderResponse = await callWithTools(config, apiMessages, true)
     let iterations = 0
+    const toolCallHistory: string[] = []  // Track consecutive tool names for loop detection
+    const MAX_SAME_TOOL_REPEATS = 3       // Break if same tool called this many times in a row
 
     // Tool call loop
     while (response.stopReason === 'tool_use' && response.toolCalls.length > 0 && iterations < MAX_TOOL_ITERATIONS) {
@@ -524,6 +526,45 @@ async function sendToProvider(
           .join('\n')
         if (respondContent) {
           response = { ...response, content: respondContent, stopReason: 'end', toolCalls: [] }
+        }
+        break
+      }
+
+      // Loop detection: track tool call patterns and break if same tool repeats too many times
+      const currentToolKey = response.toolCalls.map(tc => tc.name).sort().join(',')
+      toolCallHistory.push(currentToolKey)
+      const recentSame = toolCallHistory.length >= MAX_SAME_TOOL_REPEATS &&
+        toolCallHistory.slice(-MAX_SAME_TOOL_REPEATS).every(k => k === currentToolKey)
+      if (recentSame) {
+        console.warn(`[AI] Loop detected: tool "${currentToolKey}" called ${MAX_SAME_TOOL_REPEATS} times consecutively. Breaking loop.`)
+        // Execute this last batch but don't loop back for more
+        const toolResults: AIToolResult[] = []
+        for (const tc of response.toolCalls) {
+          const result = await executeTool(tc.name, tc.arguments, projectId || '')
+          toolResults.push({ toolCallId: tc.id, success: result.success, result: result.result })
+        }
+        const toolResultMsg: AIMessage = {
+          id: generateId(),
+          role: 'tool',
+          content: toolResults.map(r => `[${r.success ? '✓' : '✗'}] ${r.result}`).join('\n'),
+          toolResults,
+          conversationId: conversationId || undefined,
+          timestamp: nowUTC(),
+        }
+        set(s => ({ messages: [...s.messages, toolResultMsg] }))
+        if (conversationId) {
+          await getAdapter().insertMessage({ ...toolResultMsg, conversationId })
+        }
+        // Synthesize a final response from accumulated results
+        const summary = toolResults
+          .filter(r => r.success)
+          .map(r => r.result)
+          .join('\n')
+        response = {
+          ...response,
+          content: summary || response.content || '도구 실행이 완료되었습니다.',
+          stopReason: 'end',
+          toolCalls: [],
         }
         break
       }

@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ArrowLeft, Trash2, Tag } from 'lucide-react'
+import { ArrowLeft, Trash2, Tag, ChevronDown } from 'lucide-react'
 import { useWikiStore } from '@/stores/wikiStore'
 import { useWorldStore } from '@/stores/worldStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { deleteEntryWithUndo, updateEntryWithUndo } from '@/stores/undoWikiActions'
 import { useSaveStatusStore } from '@/stores/saveStatusStore'
-import type { WikiEntry } from '@/types'
+import type { WikiEntry, WikiCategory } from '@/types'
 import type { PanelDragHandlers } from '@/components/layout/PanelTabBar'
-import { WIKI_CATEGORIES } from './WikiCategoryList'
+import { WIKI_CATEGORIES, WIKI_CATEGORY_GROUPS } from './WikiCategoryList'
 import { CharacterWikiFields } from './CharacterWikiFields'
 import { WikiContentContextMenu } from './WikiContentContextMenu'
 import { cn } from '@/lib/utils'
@@ -89,6 +89,8 @@ export function WikiEntryEditor({ entry, onBack, panelDragHandlers }: WikiEntryE
   const [content, setContent] = useState(entry.content)
   const [tagInput, setTagInput] = useState('')
   const [contentContextMenu, setContentContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false)
+  const categoryPickerRef = useRef<HTMLDivElement>(null)
   const contentTextareaRef = useRef<HTMLTextAreaElement>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const titleManuallySetRef = useRef(!!entry.title)
@@ -157,6 +159,27 @@ export function WikiEntryEditor({ entry, onBack, panelDragHandlers }: WikiEntryE
     updateEntryWithUndo(entry.id, { tags: newTags })
   }
 
+  const handleCategoryChange = (newCategory: WikiCategory) => {
+    if (newCategory === entry.category) {
+      setShowCategoryPicker(false)
+      return
+    }
+    updateEntryWithUndo(entry.id, { category: newCategory })
+    setShowCategoryPicker(false)
+  }
+
+  // Close category picker on outside click
+  useEffect(() => {
+    if (!showCategoryPicker) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (categoryPickerRef.current && !categoryPickerRef.current.contains(e.target as Node)) {
+        setShowCategoryPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showCategoryPicker])
+
   const handleDelete = () => {
     deleteEntryWithUndo(entry.id)
     onBack()
@@ -181,9 +204,44 @@ export function WikiEntryEditor({ entry, onBack, panelDragHandlers }: WikiEntryE
         >
           <ArrowLeft className="w-3.5 h-3.5" />
         </button>
-        <span className="text-[10px] text-text-muted px-1.5 py-0.5 bg-bg-hover rounded">
-          {catMeta?.labelKo ?? entry.category}
-        </span>
+        <div className="relative" ref={categoryPickerRef}>
+          <button
+            onClick={() => setShowCategoryPicker(prev => !prev)}
+            className="flex items-center gap-0.5 text-[10px] text-text-muted px-1.5 py-0.5 bg-bg-hover rounded hover:bg-bg-active hover:text-text-primary transition"
+            title="카테고리 변경"
+          >
+            {catMeta?.icon}
+            <span className="ml-0.5">{catMeta?.labelKo ?? entry.category}</span>
+            <ChevronDown className="w-2.5 h-2.5 ml-0.5 opacity-50" />
+          </button>
+
+          {showCategoryPicker && (
+            <div className="absolute top-full left-0 mt-1 z-50 w-48 max-h-64 overflow-y-auto bg-bg-surface border border-border rounded-lg shadow-xl py-1">
+              {WIKI_CATEGORY_GROUPS.map(group => (
+                <div key={group.id}>
+                  <div className="px-3 py-1 text-[9px] font-medium text-text-muted uppercase tracking-wider">
+                    {group.labelKo}
+                  </div>
+                  {group.categories.map(cat => (
+                    <button
+                      key={cat.key}
+                      onClick={() => handleCategoryChange(cat.key)}
+                      className={cn(
+                        'flex items-center gap-2 w-full px-3 py-1.5 text-xs transition',
+                        cat.key === entry.category
+                          ? 'bg-accent/15 text-accent font-medium'
+                          : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+                      )}
+                    >
+                      {cat.icon}
+                      <span>{cat.labelKo}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="flex-1" />
         <button
           onClick={handleDelete}

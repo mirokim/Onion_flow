@@ -40,6 +40,7 @@ interface CanvasState {
   enterDepth: (nodeId: string) => Promise<void>
   exitDepth: () => Promise<void>
   warpToDepth: (index: number) => Promise<void>
+  setDepthPath: (path: string[]) => void
   getCurrentParentCanvasId: () => string | null
 
   // Serialization
@@ -188,6 +189,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       currentDepthPath: s.currentDepthPath.slice(0, index),
       selectedNodeId: null,
     }))
+  },
+
+  setDepthPath: (path: string[]) => {
+    set({ currentDepthPath: path, selectedNodeId: null })
   },
 
   getCurrentParentCanvasId: () => {

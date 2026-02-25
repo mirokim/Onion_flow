@@ -88,9 +88,17 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
 
       {/* Body — dispatched to plugin via NodeBodyRenderer */}
       <div className="canvas-node-body px-3 py-2 text-xs text-text-secondary">
-        <span className="text-text-muted/60 uppercase tracking-wider text-[10px]">
-          {def.category}
-        </span>
+        <div className="flex items-center justify-between gap-1">
+          {!hideHandleLabels && inputs.length > 0 ? (
+            <span className="text-[8px] text-text-muted/70 shrink-0">{inputs[0].label}</span>
+          ) : <span />}
+          <span className="text-text-muted/60 uppercase tracking-wider text-[10px]">
+            {def.category}
+          </span>
+          {!hideHandleLabels && outputs.length > 0 ? (
+            <span className="text-[8px] text-text-muted/70 shrink-0 text-right">{outputs[0].label}</span>
+          ) : <span />}
+        </div>
         <NodeBodyRenderer nodeId={data.nodeId || id} data={data} selected={!!selected} />
       </div>
 
@@ -168,15 +176,7 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
               )}
               style={{ top: topPct, backgroundColor: handleColor }}
             />
-            {/* Static label — hidden for nodes whose body UI already covers the handles */}
-            {!hideHandleLabels && (
-              <span
-                className="absolute text-[8px] leading-none text-text-muted/70 select-none whitespace-nowrap pointer-events-none"
-                style={{ top: topPct, left: '14px', transform: 'translateY(-50%)', zIndex: 10 }}
-              >
-                {input.label}
-              </span>
-            )}
+            {/* Handle labels are now rendered inline in the body row above */}
           </Fragment>
         )
       })}
@@ -197,15 +197,7 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
               className="!w-3 !h-3 !border-2 !border-bg-surface hover:!scale-150 !transition-all !duration-150"
               style={{ top: topPct, backgroundColor: handleColor }}
             />
-            {/* Static label — hidden for nodes whose body UI already covers the handles */}
-            {!hideHandleLabels && (
-              <span
-                className="absolute text-[8px] leading-none text-text-muted/70 select-none whitespace-nowrap pointer-events-none"
-                style={{ top: topPct, right: '14px', transform: 'translateY(-50%)', zIndex: 10, textAlign: 'right' }}
-              >
-                {output.label}
-              </span>
-            )}
+            {/* Handle labels are now rendered inline in the body row above */}
           </Fragment>
         )
       })}

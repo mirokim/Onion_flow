@@ -141,10 +141,19 @@ function NodeCanvasInner() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set())
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<Set<string>>(new Set())
 
-  // Merge selection into rfNodes for ReactFlow
+  // Track measured dimensions locally (not in Zustand to avoid infinite re-measure loop).
+  // MiniMap needs `measured` on user nodes to render them via nodeHasDimensions().
+  const measuredDimsRef = useRef<Map<string, { width: number; height: number }>>(new Map())
+  const [measureGeneration, setMeasureGeneration] = useState(0)
+
+  // Merge selection + measured dimensions into rfNodes for ReactFlow
   const rfNodesWithSelection: Node[] = useMemo(
-    () => rfNodes.map(n => ({ ...n, selected: selectedNodeIds.has(n.id) })),
-    [rfNodes, selectedNodeIds],
+    () => rfNodes.map(n => {
+      const m = measuredDimsRef.current.get(n.id)
+      return { ...n, selected: selectedNodeIds.has(n.id), ...(m ? { measured: m } : {}) }
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rfNodes, selectedNodeIds, measureGeneration],
   )
   const rfEdgesWithSelection: Edge[] = useMemo(
     () => rfEdges.map(e => ({ ...e, selected: selectedEdgeIds.has(e.id) })),
@@ -168,6 +177,17 @@ function NodeCanvasInner() {
         // ⚠ Do NOT feed measured dimensions back into Zustand for every node!
         // Doing so creates new node objects → ReactFlow re-measures → infinite loop,
         // which also prevents handle-bounds from stabilising → edges never render.
+        // Instead, store measured dims locally so MiniMap can render nodes.
+        const prev = measuredDimsRef.current.get(change.id)
+        if (!prev || prev.width !== change.dimensions.width || prev.height !== change.dimensions.height) {
+          measuredDimsRef.current.set(change.id, {
+            width: change.dimensions.width,
+            height: change.dimensions.height,
+          })
+          // Trigger re-render only when dimensions actually change (batched by React)
+          setMeasureGeneration(g => g + 1)
+        }
+
         // We only persist group dimensions when a resize operation *actually ends*
         // (not on initial measurement, which would trigger a feedback loop).
         if ((change as any).resizing) {
@@ -178,7 +198,6 @@ function NodeCanvasInner() {
           resizingNodeRef.current = null
           updateNodeSize(change.id, change.dimensions.width, change.dimensions.height)
         }
-        // Otherwise: initial measurement → ignore (prevents dimension feedback loop)
       } else if (change.type === 'select') {
         selChanged = true
         if (change.selected) {
@@ -697,6 +716,7 @@ function NodeCanvasInner() {
         nodeTypes={nodeTypes}
         fitView
         deleteKeyCode={['Backspace', 'Delete']}
+        proOptions={{ hideAttribution: true }}
         className="bg-bg-primary"
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-border)" />
