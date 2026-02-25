@@ -327,6 +327,8 @@ function FileTreeContextMenu({
   const openCanvasTab = useEditorStore(s => s.openCanvasTab)
   const openEditorTab = useEditorStore(s => s.openEditorTab)
   const closeCanvasTab = useEditorStore(s => s.closeCanvasTab)
+  const closeEditorTab = useEditorStore(s => s.closeEditorTab)
+  const editorTabs = useEditorStore(s => s.editorTabs)
   const activatePanel = useEditorStore(s => s.activatePanel)
   const openTabs = useEditorStore(s => s.openTabs)
   const toggleTab = useEditorStore(s => s.toggleTab)
@@ -439,6 +441,9 @@ function FileTreeContextMenu({
       removeFileTreeNode(menu.nodeId)
       toast.success('캔버스가 삭제되었습니다.')
     } else if (node.targetId) {
+      // Close the editor tab if open
+      const editorTab = editorTabs.find(t => t.targetId === node.targetId)
+      if (editorTab) closeEditorTab(editorTab.id)
       await deleteChapter(node.targetId)
       removeFileTreeNode(menu.nodeId)
       toast.success('문서가 삭제되었습니다.')
