@@ -580,7 +580,7 @@ export function OpenFilesPanel() {
   return (
     <div className="flex flex-col h-full bg-bg-primary">
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-1.5 py-1.5 shrink-0 flex-wrap">
+      <div className="flex items-center justify-center gap-0.5 px-1.5 py-1.5 shrink-0 flex-wrap">
         <button onClick={handleNewStoryflow} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 스토리플로우">
           <LayoutGrid className="w-3.5 h-3.5" />
         </button>
