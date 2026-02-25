@@ -342,6 +342,7 @@ export interface AIMessage {
   role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   provider?: AIProvider
+  model?: string
   toolCalls?: AIToolCall[]
   toolResults?: AIToolResult[]
   attachments?: AIAttachment[]

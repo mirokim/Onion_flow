@@ -30,6 +30,17 @@ export async function handleSaveRelation(params: Record<string, any>, projectId:
   return { success: true, result: `관계가 생성되었습니다: ${sourceName} ↔ ${targetName} (${relationType})` }
 }
 
+export async function handleDeleteRelation(params: Record<string, any>): Promise<ToolExecutionResult> {
+  const { relationId } = params
+  const worldStore = useWorldStore.getState()
+  const rel = worldStore.relations.find(r => r.id === relationId)
+  if (!rel) return { success: false, result: `관계 ID '${relationId}'을(를) 찾을 수 없습니다.` }
+  const srcName = worldStore.characters.find(c => c.id === rel.sourceId)?.name || '?'
+  const tgtName = worldStore.characters.find(c => c.id === rel.targetId)?.name || '?'
+  await worldStore.deleteRelation(relationId)
+  return { success: true, result: `관계가 삭제되었습니다: ${srcName} ↔ ${tgtName}` }
+}
+
 export async function handleAnalyzeCharacterEmotions(params: Record<string, any>): Promise<ToolExecutionResult> {
   const { characterName, chapterEmotions } = params
   const chars = useWorldStore.getState().characters

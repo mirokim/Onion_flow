@@ -4,7 +4,7 @@ import type { AIConfig, AIMessage, AIProvider, AIToolCall, AIToolResult, PromptT
 import { generateId } from '@/lib/utils'
 import { nowUTC } from '@/lib/dateUtils'
 import { getAdapter } from '@/db/storageAdapter'
-import { callWithTools, buildToolResultMessages, type ProviderResponse } from '@/ai/providers'
+import { callWithTools, buildToolResultMessages, fetchProviderModels, humanizeError, type ProviderResponse } from '@/ai/providers'
 import { executeTool } from '@/ai/toolExecutor'
 import { buildChatSystemPrompt } from '@/ai/chatSystemPrompt'
 
@@ -20,11 +20,15 @@ interface AIState {
   currentConversationId: string | null
   contextInjection: 'always' | 'ask' | 'never'
   customModels: Record<AIProvider, string[]>
+  fetchedModels: Record<AIProvider, string[]>
+  modelsFetching: Record<AIProvider, boolean>
 
   // Config
   updateConfig: (provider: AIProvider, updates: Partial<AIConfig>) => void
   addCustomModel: (provider: AIProvider, model: string) => void
   removeCustomModel: (provider: AIProvider, model: string) => void
+  fetchModelsForProvider: (provider: AIProvider) => Promise<void>
+  fetchAllEnabledModels: () => Promise<void>
 
   // Chat
   sendMessage: (content: string, projectId?: string) => Promise<void>
@@ -244,8 +248,39 @@ export const useAIStore = create<AIState>()(
       currentConversationId: null,
       contextInjection: 'ask' as 'always' | 'ask' | 'never',
       customModels: { openai: [], anthropic: [], gemini: [], llama: [], grok: [] } as Record<AIProvider, string[]>,
+      fetchedModels: { openai: [], anthropic: [], gemini: [], llama: [], grok: [] } as Record<AIProvider, string[]>,
+      modelsFetching: { openai: false, anthropic: false, gemini: false, llama: false, grok: false } as Record<AIProvider, boolean>,
 
       setContextInjection: (mode) => set({ contextInjection: mode }),
+
+      fetchModelsForProvider: async (provider) => {
+        const { configs, modelsFetching } = get()
+        const config = configs[provider]
+        if (!config?.enabled || (!config.apiKey && !config.baseUrl)) return
+        if (modelsFetching[provider]) return // already fetching
+
+        set(s => ({ modelsFetching: { ...s.modelsFetching, [provider]: true } }))
+        try {
+          const models = await fetchProviderModels(provider, config.apiKey, config.baseUrl)
+          if (models.length > 0) {
+            set(s => ({
+              fetchedModels: { ...s.fetchedModels, [provider]: models },
+              modelsFetching: { ...s.modelsFetching, [provider]: false },
+            }))
+          } else {
+            set(s => ({ modelsFetching: { ...s.modelsFetching, [provider]: false } }))
+          }
+        } catch {
+          set(s => ({ modelsFetching: { ...s.modelsFetching, [provider]: false } }))
+        }
+      },
+
+      fetchAllEnabledModels: async () => {
+        const { configs } = get()
+        const providers = (['openai', 'anthropic', 'gemini', 'llama', 'grok'] as AIProvider[])
+          .filter(p => configs[p]?.enabled && (configs[p]?.apiKey || configs[p]?.baseUrl))
+        await Promise.allSettled(providers.map(p => get().fetchModelsForProvider(p)))
+      },
 
       addCustomModel: (provider, model) => {
         set(s => {
@@ -430,7 +465,7 @@ async function sendToProvider(
 
   try {
     // Build system prompt with project context
-    const systemPrompt = projectId ? buildChatSystemPrompt(projectId) : '당신은 소설 집필을 돕는 AI 어시스턴트입니다.'
+    const systemPrompt = projectId ? buildChatSystemPrompt(projectId, provider, config.model) : '당신은 소설 집필을 돕는 AI 어시스턴트입니다.'
 
     // Build API messages from conversation history
     const apiMessages: { role: string; content: string | unknown[] | null; [key: string]: unknown }[] = [
@@ -440,7 +475,7 @@ async function sendToProvider(
     for (const msg of get().messages) {
       if (msg.role === 'user' || msg.role === 'assistant') {
         const apiMsg: Record<string, unknown> = { role: msg.role, content: msg.content }
-        // Include tool calls in assistant messages for OpenAI/Llama/Grok format
+        // Include tool calls in assistant messages per provider format
         if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
           if (provider === 'openai' || provider === 'llama' || provider === 'grok') {
             apiMsg.tool_calls = msg.toolCalls.map(tc => ({
@@ -448,6 +483,17 @@ async function sendToProvider(
               type: 'function',
               function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
             }))
+          } else if (provider === 'anthropic') {
+            // Anthropic requires tool_use blocks inside the assistant content array
+            apiMsg.content = [
+              ...(msg.content ? [{ type: 'text', text: msg.content }] : []),
+              ...msg.toolCalls.map(tc => ({
+                type: 'tool_use',
+                id: tc.id,
+                name: tc.name,
+                input: tc.arguments,
+              })),
+            ]
           }
         }
         apiMessages.push(apiMsg as typeof apiMessages[0])
@@ -467,12 +513,28 @@ async function sendToProvider(
     while (response.stopReason === 'tool_use' && response.toolCalls.length > 0 && iterations < MAX_TOOL_ITERATIONS) {
       iterations++
 
+      // Defense-in-depth: if all tool calls are just `respond`, break immediately
+      // (the respond tool is a text-only reply — no need to loop back to the provider)
+      const allRespond = response.toolCalls.every(tc => tc.name === 'respond')
+      if (allRespond) {
+        // Use the respond message content as the final response
+        const respondContent = response.toolCalls
+          .map(tc => tc.arguments?.message || '')
+          .filter(Boolean)
+          .join('\n')
+        if (respondContent) {
+          response = { ...response, content: respondContent, stopReason: 'end', toolCalls: [] }
+        }
+        break
+      }
+
       // Add assistant message with tool calls
       const assistantToolMsg: AIMessage = {
         id: generateId(),
         role: 'assistant',
         content: response.content || '',
         provider,
+        model: config.model,
         toolCalls: response.toolCalls,
         conversationId: conversationId || undefined,
         timestamp: nowUTC(),
@@ -548,6 +610,7 @@ async function sendToProvider(
       role: 'assistant',
       content: response.content || '(응답 없음)',
       provider,
+      model: config.model,
       conversationId: conversationId || undefined,
       timestamp: nowUTC(),
     }
@@ -562,12 +625,14 @@ async function sendToProvider(
       await getAdapter().insertMessage({ ...finalMsg, conversationId })
     }
   } catch (err: unknown) {
-    const errorContent = err instanceof Error ? err.message : String(err)
+    const rawError = err instanceof Error ? err.message : String(err)
+    const errorContent = humanizeError(rawError)
     const errorMsg: AIMessage = {
       id: generateId(),
       role: 'assistant',
-      content: `⚠️ 오류: ${errorContent}`,
+      content: `⚠️ ${errorContent}`,
       provider,
+      model: config.model,
       conversationId: conversationId || undefined,
       timestamp: nowUTC(),
     }

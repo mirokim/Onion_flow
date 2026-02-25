@@ -8,7 +8,7 @@ import {
   handleCreateChapter, handleCreateVolume, handleRenameChapter,
 } from './chapterHandlers'
 import { handleGetCurrentState, handleCreateVersionSnapshot } from './queryHandlers'
-import { handleSaveRelation, handleAnalyzeCharacterEmotions, handleSetEditorOption } from './miscHandlers'
+import { handleSaveRelation, handleDeleteRelation, handleAnalyzeCharacterEmotions, handleSetEditorOption } from './miscHandlers'
 import { handleCreateWikiEntry, handleUpdateWikiEntry, handleDeleteWikiEntry } from './wikiHandlers'
 
 type ToolHandler = (params: Record<string, any>, projectId: string) => Promise<ToolExecutionResult>
@@ -34,6 +34,7 @@ export const TOOL_HANDLERS: Record<string, ToolHandler> = {
   delete_foreshadow: (p) => handleDeleteForeshadow(p),
 
   save_relation: handleSaveRelation,
+  delete_relation: (p) => handleDeleteRelation(p),
 
   get_current_state: (p) => handleGetCurrentState(p),
   create_version_snapshot: handleCreateVersionSnapshot,

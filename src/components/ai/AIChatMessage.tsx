@@ -73,14 +73,21 @@ export function AIChatMessage({ message }: { message: AIMessage }) {
 
       {/* Content */}
       <div className={cn('max-w-[85%] space-y-1', isUser ? 'items-end' : 'items-start')}>
-        {/* Provider badge */}
+        {/* Provider badge + model name */}
         {!isUser && message.provider && (
-          <span className={cn(
-            'inline-block text-[10px] text-white px-1.5 py-0.5 rounded-full',
-            PROVIDER_COLORS[message.provider] || 'bg-gray-500',
-          )}>
-            {PROVIDER_LABELS[message.provider] || message.provider}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className={cn(
+              'inline-block text-[10px] text-white px-1.5 py-0.5 rounded-full',
+              PROVIDER_COLORS[message.provider] || 'bg-gray-500',
+            )}>
+              {PROVIDER_LABELS[message.provider] || message.provider}
+            </span>
+            {message.model && (
+              <span className="text-[9px] text-text-muted opacity-60">
+                {message.model}
+              </span>
+            )}
+          </div>
         )}
 
         {/* Message bubble */}

@@ -120,6 +120,48 @@ export interface ProviderResponse {
 
 type ApiMessage = { role: string; content: string | unknown[] | null; [key: string]: unknown }
 
+const MAX_RETRIES = 3
+const RETRY_DELAYS = [2000, 5000, 10000] // ms - progressive backoff
+
+const RETRYABLE_PATTERNS = /overloaded|rate.?limit|529|429|too many requests|capacity|temporarily unavailable|server error|503|500/i
+
+function isRetryableError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  return RETRYABLE_PATTERNS.test(err.message)
+}
+
+const USER_FRIENDLY_ERRORS: Record<string, string> = {
+  overloaded: 'API 서버가 일시적으로 과부하 상태입니다. 잠시 후 다시 시도해주세요.',
+  'rate limit': 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.',
+  'insufficient_quota': 'API 크레딧이 부족합니다. API 키의 사용 한도를 확인해주세요.',
+  'invalid_api_key': 'API 키가 유효하지 않습니다. 설정에서 키를 확인해주세요.',
+  'authentication': 'API 인증에 실패했습니다. API 키를 확인해주세요.',
+}
+
+export function humanizeError(message: string): string {
+  const lower = message.toLowerCase()
+  for (const [pattern, friendly] of Object.entries(USER_FRIENDLY_ERRORS)) {
+    if (lower.includes(pattern)) return friendly
+  }
+  return message
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/** Check HTTP status and throw descriptive error for non-OK responses */
+async function assertOkResponse(res: Response, provider: string): Promise<void> {
+  if (res.ok) return
+  let message = `HTTP ${res.status}`
+  try {
+    const data = await res.json()
+    if (data?.error?.message) message = data.error.message
+    else if (typeof data?.error === 'string') message = data.error
+  } catch { /* use status code */ }
+  throw new Error(message)
+}
+
 export async function callWithTools(
   config: AIConfig,
   messages: ApiMessage[],
@@ -139,12 +181,28 @@ export async function callWithTools(
     }
   }
 
-  if (config.provider === 'openai') return callOpenAI(config, messages, useTools, signal)
-  if (config.provider === 'anthropic') return callAnthropic(config, messages, useTools, signal)
-  if (config.provider === 'gemini') return callGemini(config, messages, useTools, signal)
-  if (config.provider === 'llama') return callLlama(config, messages, useTools, signal)
-  if (config.provider === 'grok') return callGrok(config, messages, useTools, signal)
-  throw new Error('Unknown provider')
+  const callProvider = () => {
+    if (config.provider === 'openai') return callOpenAI(config, messages, useTools, signal)
+    if (config.provider === 'anthropic') return callAnthropic(config, messages, useTools, signal)
+    if (config.provider === 'gemini') return callGemini(config, messages, useTools, signal)
+    if (config.provider === 'llama') return callLlama(config, messages, useTools, signal)
+    if (config.provider === 'grok') return callGrok(config, messages, useTools, signal)
+    throw new Error('Unknown provider')
+  }
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await callProvider()
+    } catch (err) {
+      if (attempt < MAX_RETRIES && isRetryableError(err) && !signal?.aborted) {
+        console.warn(`[AI] ${config.provider} retryable error (attempt ${attempt + 1}/${MAX_RETRIES}):`, err)
+        await sleep(RETRY_DELAYS[attempt])
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error('Unreachable')
 }
 
 async function callOpenAI(config: AIConfig, messages: ApiMessage[], useTools: boolean, signal?: AbortSignal): Promise<ProviderResponse> {
@@ -194,9 +252,12 @@ async function callAnthropic(config: AIConfig, messages: ApiMessage[], useTools:
     ? [{ type: 'text', text: systemContent, cache_control: { type: 'ephemeral' } }]
     : systemContent
 
+  // Claude 3.0 models (haiku/sonnet/opus) support max 4096 output tokens
+  const maxTokens = /^claude-3-(haiku|sonnet|opus)-\d/.test(config.model) ? 4096 : 8192
+
   const body: Record<string, unknown> = {
     model: config.model,
-    max_tokens: 8192,
+    max_tokens: maxTokens,
     system: systemWithCache,
     messages: mappedMsgs,
   }
@@ -215,6 +276,7 @@ async function callAnthropic(config: AIConfig, messages: ApiMessage[], useTools:
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', headers, body: JSON.stringify(body), signal,
   })
+  await assertOkResponse(res, 'anthropic')
   const data = await res.json() as AnthropicResponse
   if (data.error) throw new Error(data.error.message)
 
@@ -271,7 +333,7 @@ async function callGemini(config: AIConfig, messages: ApiMessage[], useTools: bo
   }
   if (useTools) {
     body.tools = toGeminiTools()
-    body.tool_config = { function_calling_config: { mode: 'ANY' } }
+    body.tool_config = { function_calling_config: { mode: 'AUTO' } }
   }
 
   const res = await fetch(
@@ -401,4 +463,99 @@ export function buildToolResultMessages(
     return [{ role: 'user', content: results.map(r => ({ functionResponse: { name: toolCalls.find(tc => tc.id === r.toolCallId)?.name || '', response: { result: r.result } } })) }]
   }
   return []
+}
+
+// ── Fetch available models from provider APIs ──
+
+/** Chat-capable model name patterns for OpenAI-compatible APIs */
+const OPENAI_CHAT_PATTERNS = /^(gpt-|o[134]-|o[134]$|chatgpt)/i
+const EXCLUDED_PATTERNS = /^(dall-e|whisper|tts|text-embedding|text-moderation|babbage|davinci|curie|ada-)/i
+
+interface OpenAIModelEntry { id: string; object?: string }
+interface OpenAIModelsResponse { data?: OpenAIModelEntry[]; error?: { message: string } }
+interface AnthropicModelEntry { id: string; type: string; display_name?: string }
+interface AnthropicModelsResponse { data?: AnthropicModelEntry[]; error?: { message: string } }
+interface GeminiModelEntry { name: string; supportedGenerationMethods?: string[] }
+interface GeminiModelsResponse { models?: GeminiModelEntry[]; error?: { message: string } }
+
+export async function fetchProviderModels(
+  provider: AIConfig['provider'],
+  apiKey: string,
+  baseUrl?: string,
+): Promise<string[]> {
+  if (!apiKey && !baseUrl) return []
+
+  try {
+    if (provider === 'openai') {
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      })
+      const data = await res.json() as OpenAIModelsResponse
+      if (data.error) throw new Error(data.error.message)
+      return (data.data || [])
+        .map(m => m.id)
+        .filter(id => OPENAI_CHAT_PATTERNS.test(id) && !EXCLUDED_PATTERNS.test(id))
+        .sort()
+    }
+
+    if (provider === 'anthropic') {
+      const headers: Record<string, string> = {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      }
+      const isElectron = typeof window !== 'undefined' && !!(window as unknown as { electronAPI?: { isElectron?: boolean } }).electronAPI?.isElectron
+      if (!isElectron) {
+        headers['anthropic-dangerous-direct-browser-access'] = 'true'
+      }
+      const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        headers,
+      })
+      const data = await res.json() as AnthropicModelsResponse
+      if (data.error) throw new Error(data.error.message)
+      return (data.data || [])
+        .map(m => m.id)
+        .sort()
+    }
+
+    if (provider === 'gemini') {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+      )
+      const data = await res.json() as GeminiModelsResponse
+      if (data.error) throw new Error(data.error.message)
+      return (data.models || [])
+        .filter(m => m.supportedGenerationMethods?.includes('generateContent'))
+        .map(m => m.name.replace(/^models\//, ''))
+        .sort()
+    }
+
+    if (provider === 'grok') {
+      const url = (baseUrl?.replace(/\/+$/, '') || 'https://api.x.ai/v1') + '/models'
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      })
+      const data = await res.json() as OpenAIModelsResponse
+      if (data.error) throw new Error(data.error.message)
+      return (data.data || [])
+        .map(m => m.id)
+        .sort()
+    }
+
+    if (provider === 'llama') {
+      const url = (baseUrl?.replace(/\/+$/, '') || 'https://api.together.xyz/v1') + '/models'
+      const headers: Record<string, string> = {}
+      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
+      const res = await fetch(url, { headers })
+      const data = await res.json() as OpenAIModelsResponse
+      if (data.error) throw new Error(data.error.message)
+      return (data.data || [])
+        .map(m => m.id)
+        .sort()
+    }
+
+    return []
+  } catch (err) {
+    console.warn(`[AI] Failed to fetch models for ${provider}:`, err)
+    return []
+  }
 }

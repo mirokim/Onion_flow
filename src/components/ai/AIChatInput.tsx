@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, type KeyboardEvent } from 'react'
+import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Send, Loader2, ChevronDown, Swords } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -26,7 +26,20 @@ export function AIChatInput({ onSend, isLoading, templates, onToggleDebate, deba
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
+    // Re-focus the input after sending
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+    })
   }, [value, isLoading, onSend])
+
+  // Re-focus input when loading finishes (AI response complete)
+  const prevLoadingRef = useRef(isLoading)
+  useEffect(() => {
+    if (prevLoadingRef.current && !isLoading) {
+      textareaRef.current?.focus()
+    }
+    prevLoadingRef.current = isLoading
+  }, [isLoading])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {

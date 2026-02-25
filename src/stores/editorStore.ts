@@ -109,6 +109,12 @@ interface EditorState {
   fileTreeRoots: string[]
   fileTreeSortBy: 'name' | 'date'
 
+  // Keyboard shortcut customization
+  customKeybindings: Record<string, string>
+  setKeybinding: (id: string, keys: string) => void
+  resetKeybinding: (id: string) => void
+  resetAllKeybindings: () => void
+
   // Settings dialog (global, so any panel can open it)
   settingsOpen: boolean
   settingsSection: string
@@ -192,6 +198,17 @@ export const useEditorStore = create<EditorState>()(
       fileTreeNodes: {},
       fileTreeRoots: [],
       fileTreeSortBy: 'name' as const,
+
+      customKeybindings: {},
+      setKeybinding: (id, keys) => set((s) => ({
+        customKeybindings: { ...s.customKeybindings, [id]: keys },
+      })),
+      resetKeybinding: (id) => set((s) => {
+        const updated = { ...s.customKeybindings }
+        delete updated[id]
+        return { customKeybindings: updated }
+      }),
+      resetAllKeybindings: () => set({ customKeybindings: {} }),
 
       settingsOpen: false,
       settingsSection: 'general',
@@ -631,7 +648,7 @@ export const useEditorStore = create<EditorState>()(
     }),
     {
       name: 'onion-flow-editor',
-      version: 17,
+      version: 18,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         theme: state.theme,
@@ -646,6 +663,7 @@ export const useEditorStore = create<EditorState>()(
         fileTreeNodes: state.fileTreeNodes,
         fileTreeRoots: state.fileTreeRoots,
         fileTreeSortBy: state.fileTreeSortBy,
+        customKeybindings: state.customKeybindings,
       }),
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...(persistedState as Partial<EditorState>) }
@@ -789,6 +807,10 @@ export const useEditorStore = create<EditorState>()(
             }
             return g
           })
+        }
+        // v18: add customKeybindings
+        if (version < 18) {
+          persisted.customKeybindings = persisted.customKeybindings ?? {}
         }
         return persisted as EditorState
       },

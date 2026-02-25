@@ -14,6 +14,7 @@ import {
   EMOTION_SCORE_MIN,
   EMOTION_SCORE_MAX,
   VERSIONABLE_ENTITY_TYPES,
+  WIKI_CATEGORIES,
 } from './constants'
 
 const safeString = z.string().transform(s => s.replace(/<[^>]*>/g, ''))
@@ -36,17 +37,25 @@ export const updateCharacterSchema = z.object({
   background: optionalSafeString,
   motivation: optionalSafeString,
   speechPattern: optionalSafeString,
+  age: optionalSafeString,
+  job: optionalSafeString,
+  affiliation: optionalSafeString,
+  desire: optionalSafeString,
+  fear: optionalSafeString,
+  secret: optionalSafeString,
   tags: safeStringArray,
   notes: optionalSafeString,
 })
 
 export const saveWorldSettingSchema = z.object({
   settingId: z.string().optional(),
-  category: z.string().min(1, '카테고리는 필수입니다'),
+  category: z.string().min(1, '카테고리는 필수입니다'),  // Not enum — resolveCategory() handles alias mapping
   title: safeString.pipe(z.string().min(1, '제목은 필수입니다')),
   content: safeString,
   tags: safeStringArray,
 })
+// Note: category is intentionally z.string() instead of z.enum(WORLD_SETTING_CATEGORIES)
+// because resolveCategory() in the handler maps aliases (e.g. '마법' → 'magic')
 
 export const saveRelationSchema = z.object({
   relationId: z.string().optional(),
@@ -65,6 +74,7 @@ export const saveForeshadowSchema = z.object({
   importance: z.enum(FORESHADOW_IMPORTANCES).optional(),
   plantedChapterId: z.string().optional(),
   resolvedChapterId: z.string().optional(),
+  tags: safeStringArray,
   notes: optionalSafeString,
 })
 
@@ -84,6 +94,7 @@ export const deleteCharacterSchema = z.object({ characterId: z.string().min(1) }
 export const deleteWorldSettingSchema = z.object({ settingId: z.string().min(1) })
 export const deleteItemSchema = z.object({ itemId: z.string().min(1) })
 export const deleteForeshadowSchema = z.object({ foreshadowId: z.string().min(1) })
+export const deleteRelationSchema = z.object({ relationId: z.string().min(1) })
 
 export const createVersionSnapshotSchema = z.object({
   entityType: z.enum(VERSIONABLE_ENTITY_TYPES),
@@ -91,7 +102,7 @@ export const createVersionSnapshotSchema = z.object({
   label: safeString.pipe(z.string().min(1)),
 })
 
-const dataTypes = ['characters', 'world_settings', 'items', 'outline', 'foreshadows', 'relations', 'chapter_content'] as const
+const dataTypes = ['characters', 'world_settings', 'items', 'outline', 'foreshadows', 'relations', 'chapter_content', 'wiki_entries'] as const
 
 export const getCurrentStateSchema = z.object({
   dataType: z.enum(dataTypes),
@@ -138,6 +149,25 @@ export const analyzeCharacterEmotionsSchema = z.object({
 
 export const respondSchema = z.object({ message: z.string().default('') })
 
+export const createWikiEntrySchema = z.object({
+  category: z.enum(WIKI_CATEGORIES),
+  title: safeString.pipe(z.string().min(1, '제목은 필수입니다')),
+  content: optionalSafeString,
+  tags: safeStringArray,
+})
+
+export const updateWikiEntrySchema = z.object({
+  entryId: z.string().min(1, 'entryId는 필수입니다'),
+  title: optionalSafeString,
+  content: optionalSafeString,
+  tags: safeStringArray,
+  category: z.enum(WIKI_CATEGORIES).optional(),
+})
+
+export const deleteWikiEntrySchema = z.object({
+  entryId: z.string().min(1, 'entryId는 필수입니다'),
+})
+
 const TOOL_SCHEMAS: Record<string, z.ZodType> = {
   save_outline: saveOutlineSchema,
   update_character: updateCharacterSchema,
@@ -149,6 +179,7 @@ const TOOL_SCHEMAS: Record<string, z.ZodType> = {
   delete_world_setting: deleteWorldSettingSchema,
   delete_item: deleteItemSchema,
   delete_foreshadow: deleteForeshadowSchema,
+  delete_relation: deleteRelationSchema,
   create_version_snapshot: createVersionSnapshotSchema,
   get_current_state: getCurrentStateSchema,
   write_chapter_content: writeChapterContentSchema,
@@ -157,6 +188,9 @@ const TOOL_SCHEMAS: Record<string, z.ZodType> = {
   create_volume: createVolumeSchema,
   rename_chapter: renameChapterSchema,
   analyze_character_emotions: analyzeCharacterEmotionsSchema,
+  create_wiki_entry: createWikiEntrySchema,
+  update_wiki_entry: updateWikiEntrySchema,
+  delete_wiki_entry: deleteWikiEntrySchema,
   respond: respondSchema,
 }
 

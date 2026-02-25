@@ -230,7 +230,7 @@ function WikiTableRow({ entry, onSelect, onContextMenu, renamingId, onRenameComp
       </td>
       <td className="px-3 py-1 hidden xl:table-cell">
         <div className="flex gap-1 flex-wrap">
-          {entry.tags.slice(0, 3).map(tag => (
+          {entry.tags.slice(0, 1).map(tag => (
             <span
               key={tag}
               className="text-[11px] px-1.5 py-0.5 bg-bg-hover text-text-muted rounded"
@@ -238,9 +238,9 @@ function WikiTableRow({ entry, onSelect, onContextMenu, renamingId, onRenameComp
               {tag}
             </span>
           ))}
-          {entry.tags.length > 3 && (
+          {entry.tags.length > 1 && (
             <span className="text-[11px] text-text-muted">
-              +{entry.tags.length - 3}
+              +{entry.tags.length - 1}
             </span>
           )}
         </div>

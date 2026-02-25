@@ -1,12 +1,14 @@
 /**
  * Global keyboard shortcuts hook.
  * Handles common actions like save, focus mode, panel toggles, undo/redo.
+ * Reads custom keybindings from editorStore for configurable shortcuts.
  */
 import { useEffect, useCallback } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUndoStore, type UndoContext } from '@/stores/undoStore'
 import { getSQLiteAdapter } from '@/db/storageAdapter'
 import type { SettingsSection } from '@/components/common/SettingsDialog'
+import { resolveKeybinding, matchesKeybinding } from '@/lib/shortcuts'
 
 interface ShortcutHandlers {
   onSave?: () => void
@@ -49,12 +51,15 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers = {}) {
   const { toggleFocusMode, toggleTab } = useEditorStore()
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    const isCtrl = e.ctrlKey || e.metaKey
-    const isShift = e.shiftKey
     const target = e.target as HTMLElement
 
-    // ── Undo: Ctrl+Z (must be checked BEFORE input/textarea guard) ──
-    if (isCtrl && !isShift && e.key === 'z') {
+    // Read custom keybindings at event time (avoids extra hook + always latest)
+    const customKeybindings = useEditorStore.getState().customKeybindings
+    // Helper to resolve a shortcut's effective keybinding
+    const kb = (id: string) => resolveKeybinding(id, customKeybindings)
+
+    // ── Undo: must be checked BEFORE input/textarea guard ──
+    if (matchesKeybinding(e, kb('undo')) && !e.shiftKey) {
       const ctx = getActiveUndoContext(target)
       if (ctx === 'editor' || ctx === 'native') return // Let native handler
       if (ctx === 'canvas' || ctx === 'wiki') {
@@ -65,8 +70,8 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers = {}) {
       return
     }
 
-    // ── Redo: Ctrl+Y ──
-    if (isCtrl && !isShift && e.key === 'y') {
+    // ── Redo ──
+    if (matchesKeybinding(e, kb('redo')) && !e.shiftKey) {
       const ctx = getActiveUndoContext(target)
       if (ctx === 'editor' || ctx === 'native') return
       if (ctx === 'canvas' || ctx === 'wiki') {
@@ -83,8 +88,8 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers = {}) {
       target.tagName === 'TEXTAREA' ||
       target.isContentEditable
     ) {
-      // Only handle Ctrl+S in editable areas
-      if (isCtrl && e.key === 's') {
+      // Only handle Save in editable areas
+      if (matchesKeybinding(e, kb('save'))) {
         e.preventDefault()
         getSQLiteAdapter().saveNow()
         handlers.onSave?.()
@@ -92,51 +97,48 @@ export function useKeyboardShortcuts(handlers: ShortcutHandlers = {}) {
       return
     }
 
-    // Ctrl+S: Save
-    if (isCtrl && e.key === 's') {
+    // Save
+    if (matchesKeybinding(e, kb('save'))) {
       e.preventDefault()
       getSQLiteAdapter().saveNow()
       handlers.onSave?.()
       return
     }
 
-    // Ctrl+Shift+F: Focus mode
-    if (isCtrl && isShift && e.key === 'F') {
+    // Focus mode
+    if (matchesKeybinding(e, kb('focusMode'))) {
       e.preventDefault()
       toggleFocusMode()
       return
     }
 
-    // Ctrl+1: Toggle canvas tab
-    if (isCtrl && e.key === '1') {
+    // Panel toggles
+    if (matchesKeybinding(e, kb('toggleCanvas'))) {
       e.preventDefault()
       toggleTab('canvas')
       return
     }
 
-    // Ctrl+2: Toggle editor tab
-    if (isCtrl && e.key === '2') {
+    if (matchesKeybinding(e, kb('toggleEditor'))) {
       e.preventDefault()
       toggleTab('editor')
       return
     }
 
-    // Ctrl+3: Toggle wiki tab
-    if (isCtrl && e.key === '3') {
+    if (matchesKeybinding(e, kb('toggleWiki'))) {
       e.preventDefault()
       toggleTab('wiki')
       return
     }
 
-    // Ctrl+Shift+S: Open settings → stats tab
-    if (isCtrl && isShift && e.key === 'S') {
+    // Settings shortcuts
+    if (matchesKeybinding(e, kb('openStats'))) {
       e.preventDefault()
       handlers.onOpenSettings?.('stats')
       return
     }
 
-    // Ctrl+Shift+T: Open settings → timeline tab
-    if (isCtrl && isShift && e.key === 'T') {
+    if (matchesKeybinding(e, kb('openTimeline'))) {
       e.preventDefault()
       handlers.onOpenSettings?.('timeline')
       return

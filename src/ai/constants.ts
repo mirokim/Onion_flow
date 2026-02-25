@@ -42,7 +42,7 @@ export function resolveCategory(category: string): WorldSettingCategoryValue {
 export const WIKI_CATEGORIES = [
   ...WORLD_SETTING_CATEGORIES,
   'character', 'character_memory', 'character_motivation',
-  'event', 'story',
+  'event', 'story', 'plot',
   'item', 'custom',
 ] as const
 
@@ -61,7 +61,7 @@ export const EMOTION_SCORE_MIN = 0
 export const EMOTION_SCORE_MAX = 10
 
 // ── Entity Version Types ──
-export const VERSIONABLE_ENTITY_TYPES = ['chapter', 'character', 'world_setting', 'foreshadow', 'outline', 'relation'] as const
+export const VERSIONABLE_ENTITY_TYPES = ['chapter', 'character', 'world_setting', 'item', 'foreshadow', 'outline', 'relation'] as const
 
 // ── Truncation Limits ──
 export const PROMPT_LIMITS = {
@@ -118,6 +118,7 @@ export const TOOL_ACCESS_REQUIREMENTS: Record<string, { scope: keyof AIAccessSco
   save_foreshadow: { scope: 'foreshadows', level: 'full' },
   delete_foreshadow: { scope: 'foreshadows', level: 'full' },
   save_relation: { scope: 'relations', level: 'full' },
+  delete_relation: { scope: 'relations', level: 'full' },
   write_chapter_content: { scope: 'chapters', level: 'full' },
   append_to_chapter: { scope: 'chapters', level: 'full' },
   create_chapter: { scope: 'chapters', level: 'full' },

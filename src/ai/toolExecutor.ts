@@ -94,7 +94,7 @@ function requestUserConfirmation(
 }
 
 export const DELETE_TOOLS = new Set([
-  'delete_character', 'delete_world_setting', 'delete_item', 'delete_foreshadow',
+  'delete_character', 'delete_world_setting', 'delete_item', 'delete_foreshadow', 'delete_relation',
 ])
 
 export function resolveDeleteTargetInfo(toolName: string, params: Record<string, any>): { targetName: string; entityType: string } {
@@ -105,6 +105,7 @@ export function resolveDeleteTargetInfo(toolName: string, params: Record<string,
     delete_world_setting: 'world_setting',
     delete_item: 'item',
     delete_foreshadow: 'foreshadow',
+    delete_relation: 'relation',
   }
 
   if (toolName === 'delete_character') {
@@ -119,6 +120,15 @@ export function resolveDeleteTargetInfo(toolName: string, params: Record<string,
   } else if (toolName === 'delete_foreshadow') {
     const f = worldStore.foreshadows.find(f => f.id === params.foreshadowId)
     targetName = f?.title || params.foreshadowId
+  } else if (toolName === 'delete_relation') {
+    const r = worldStore.relations.find(r => r.id === params.relationId)
+    if (r) {
+      const src = worldStore.characters.find(c => c.id === r.sourceId)?.name || '?'
+      const tgt = worldStore.characters.find(c => c.id === r.targetId)?.name || '?'
+      targetName = `${src} ↔ ${tgt}`
+    } else {
+      targetName = params.relationId
+    }
   }
 
   return { targetName, entityType: entityTypeMap[toolName] || 'unknown' }
@@ -158,7 +168,16 @@ export async function executeTool(
     }
 
     const handler = TOOL_HANDLERS[toolName]
-    if (!handler) return { success: false, result: `알 수 없는 도구: ${toolName}` }
+    if (!handler) {
+      const validNames = Object.keys(TOOL_HANDLERS)
+      // Suggest tools containing similar keywords
+      const keyword = toolName.replace(/^(create|save|update|delete|get|set)_/, '')
+      const suggestions = validNames.filter(n => n.includes(keyword) || keyword.split('_').some(k => k.length > 2 && n.includes(k)))
+      const hint = suggestions.length > 0
+        ? ` 유사한 도구: ${suggestions.join(', ')}`
+        : ` 사용 가능한 도구: ${validNames.join(', ')}`
+      return { success: false, result: `알 수 없는 도구: ${toolName}.${hint}` }
+    }
     return await handler(params, projectId)
   } catch (err: any) {
     return { success: false, result: `오류: ${err.message}` }
