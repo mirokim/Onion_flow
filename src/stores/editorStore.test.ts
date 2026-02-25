@@ -16,7 +16,7 @@ function resetStore() {
     panelGroups: [
       { id: 'test-canvas', tabs: ['canvas'], activeTab: 'canvas', width: 480 },
       { id: 'test-editor', tabs: ['editor'], activeTab: 'editor', width: 500 },
-      { id: 'test-wiki', tabs: ['wiki'], activeTab: 'wiki', width: 800 },
+      { id: 'test-wiki', tabs: ['wiki'], activeTab: 'wiki', width: 600 },
     ],
     showLineNumbers: false,
     lineNumberOpacity: 0.4,
@@ -41,7 +41,7 @@ describe('editorStore', () => {
       expect(state.focusMode).toBe(false)
       expect(state.openTabs).toEqual(['canvas', 'editor', 'wiki'])
       expect(state.panelGroups[0].width).toBe(480)
-      expect(state.panelGroups[2].width).toBe(800)
+      expect(state.panelGroups[2].width).toBe(600)
       expect(state.showLineNumbers).toBe(false)
       expect(state.lineNumberOpacity).toBe(0.4)
       expect(state.emotionData).toEqual({})
@@ -157,16 +157,22 @@ describe('editorStore', () => {
       expect(group?.width).toBe(1200)
     })
 
-    it('should clamp wiki width to per-type maximum (1000)', () => {
+    it('should allow wiki width up to global maximum (1200)', () => {
       useEditorStore.getState().setGroupWidth('test-wiki', 1200)
       const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-wiki')
-      expect(group?.width).toBe(1000)
+      expect(group?.width).toBe(1200)
     })
 
-    it('should clamp wiki width to per-type minimum (800)', () => {
-      useEditorStore.getState().setGroupWidth('test-wiki', 500)
+    it('should clamp wiki width above global maximum', () => {
+      useEditorStore.getState().setGroupWidth('test-wiki', 2000)
       const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-wiki')
-      expect(group?.width).toBe(800)
+      expect(group?.width).toBe(1200)
+    })
+
+    it('should clamp wiki width to per-type minimum (600)', () => {
+      useEditorStore.getState().setGroupWidth('test-wiki', 200)
+      const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-wiki')
+      expect(group?.width).toBe(600)
     })
   })
 

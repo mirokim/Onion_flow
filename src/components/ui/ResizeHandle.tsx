@@ -2,12 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 interface ResizeHandleProps {
-  side: 'left' | 'right'
   onResize: (delta: number) => void
   className?: string
 }
 
-export function ResizeHandle({ side, onResize, className }: ResizeHandleProps) {
+export function ResizeHandle({ onResize, className }: ResizeHandleProps) {
   const [isDragging, setIsDragging] = useState(false)
   const startXRef = useRef(0)
   const onResizeRef = useRef(onResize)

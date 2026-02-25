@@ -1,5 +1,20 @@
 import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
-import { useEditorStore, type PanelTab, type PanelGroup, MIN_PANEL_WIDTH } from '@/stores/editorStore'
+import { useEditorStore, type PanelTab, type PanelGroup, minWidthForGroup } from '@/stores/editorStore'
+
+/** Compute which group should be the flex group from raw panelGroups.
+ *  Extracted as a pure function so handlePanelResize can use fresh store state
+ *  without depending on a stale flexGroupId closure. */
+function computeFlexGroupId(groups: PanelGroup[]): string | null {
+  const layout = groups
+    .map(g => ({ ...g, tabs: g.tabs.filter(t => LAYOUT_PANELS.has(t)) }))
+    .filter(g => g.tabs.length > 0)
+  if (layout.length <= 1) return layout[0]?.id ?? null
+  const editorGroup = layout.find(g => g.tabs.includes('editor'))
+  if (editorGroup) return editorGroup.id
+  const neutralGroup = layout.find(g => !g.tabs.includes('wiki') && !g.tabs.includes('canvas'))
+  if (neutralGroup) return neutralGroup.id
+  return layout[layout.length - 1]?.id ?? null
+}
 import { useTranslation } from 'react-i18next'
 import type { PanelDragHandlers } from '@/components/layout/PanelTabBar'
 import { PanelGroupTabBar } from '@/components/layout/PanelGroupTabBar'
@@ -57,6 +72,7 @@ export function AppShell() {
     setOpenFilesWidth,
     setActiveGroupTab,
     moveTabToGroup,
+    mergeGroupInto,
     splitTabToNewGroup,
     reorderGroups,
     toggleTab,
@@ -71,7 +87,8 @@ export function AppShell() {
 
   // Group drag-to-reorder state
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null)
-  const [dragOverMerge, setDragOverMerge] = useState(false) // true = merge, false = reorder
+  /** 'merge' = center drop, 'before' = left-edge split, 'after' = right-edge split */
+  const [dragOverMode, setDragOverMode] = useState<'merge' | 'before' | 'after' | null>(null)
   const dragGroupRef = useRef<string | null>(null) // group being dragged
   const dragTabRef = useRef<PanelTab | null>(null) // individual tab being dragged (for cross-group)
 
@@ -91,40 +108,31 @@ export function AppShell() {
     [panelGroups],
   )
 
-  // Determine which group is the "flex" group (fills remaining space)
-  const flexGroupId = useMemo(() => {
-    if (layoutGroups.length <= 1) return layoutGroups[0]?.id ?? null
-    // Prefer group containing 'editor'
-    const editorGroup = layoutGroups.find(g => g.tabs.includes('editor'))
-    if (editorGroup) return editorGroup.id
-    // Otherwise, first group not containing 'wiki' or 'canvas'
-    const neutralGroup = layoutGroups.find(g =>
-      !g.tabs.includes('wiki') && !g.tabs.includes('canvas')
-    )
-    if (neutralGroup) return neutralGroup.id
-    // Fallback: last group
-    return layoutGroups[layoutGroups.length - 1].id
-  }, [layoutGroups])
+  // Determine which group is the "flex" group (fills remaining space) — for rendering
+  const flexGroupId = useMemo(() => computeFlexGroupId(panelGroups), [panelGroups])
 
-  // Unified panel resize handler — reads fresh state from store
+  // Unified panel resize handler — reads fresh state to avoid stale closure issues
   const handlePanelResize = useCallback((leftGroupId: string, rightGroupId: string, delta: number) => {
     const { panelGroups: groups } = useEditorStore.getState()
+    const currentFlexGroupId = computeFlexGroupId(groups)
     const leftGroup = groups.find(g => g.id === leftGroupId)
     const rightGroup = groups.find(g => g.id === rightGroupId)
     if (!leftGroup || !rightGroup) return
 
-    if (leftGroupId === flexGroupId) {
+    if (leftGroupId === currentFlexGroupId) {
       // Left is flex: adjust right group (drag right = narrower)
       setGroupWidth(rightGroupId, rightGroup.width - delta)
     } else {
       // Left is fixed (or both fixed): adjust left group (drag right = wider)
       setGroupWidth(leftGroupId, leftGroup.width + delta)
     }
-  }, [flexGroupId, setGroupWidth])
+  }, [setGroupWidth])
 
+  // Read openFilesWidth directly from store to avoid stale closure
   const handleOpenFilesResize = useCallback((delta: number) => {
-    setOpenFilesWidth(Math.min(MAX_OPENFILES_WIDTH, Math.max(MIN_OPENFILES_WIDTH, openFilesWidth + delta)))
-  }, [openFilesWidth, setOpenFilesWidth])
+    const { openFilesWidth: w } = useEditorStore.getState()
+    setOpenFilesWidth(Math.min(MAX_OPENFILES_WIDTH, Math.max(MIN_OPENFILES_WIDTH, w + delta)))
+  }, [setOpenFilesWidth])
 
   // ── Group-level drag (reorder groups / merge) ──
   const handleGroupDragStart = (e: React.DragEvent, groupId: string) => {
@@ -158,28 +166,29 @@ export function AppShell() {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
 
-    // Determine merge vs split/reorder based on mouse position
-    // Edge zone (8% each side) = split/reorder, center 84% = merge
+    // Determine mode based on mouse position within the panel
+    // Left edge (≤15%) = insert before, right edge (≥85%) = insert after, center = merge
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const relX = (e.clientX - rect.left) / rect.width
-    const isMerge = relX > 0.08 && relX < 0.92
+    const mode: 'merge' | 'before' | 'after' =
+      relX <= 0.15 ? 'before' : relX >= 0.85 ? 'after' : 'merge'
 
     setDragOverGroupId(groupId)
-    setDragOverMerge(isMerge)
+    setDragOverMode(mode)
   }
 
   const handleGroupDrop = (e: React.DragEvent, dropGroupId: string) => {
     e.preventDefault()
     setDragOverGroupId(null)
-    setDragOverMerge(false)
+    setDragOverMode(null)
 
     const draggedGroupId = dragGroupRef.current
     const draggedTab = dragTabRef.current
 
-    // Compute merge vs split from mouse position (avoid stale React state)
+    // Compute mode from mouse position (avoid stale React state)
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const relX = (e.clientX - rect.left) / rect.width
-    const shouldMerge = relX > 0.08 && relX < 0.92
+    const shouldMerge = relX > 0.15 && relX < 0.85
 
     if (draggedTab) {
       if (shouldMerge) {
@@ -198,13 +207,8 @@ export function AppShell() {
 
     if (draggedGroupId && draggedGroupId !== dropGroupId) {
       if (shouldMerge) {
-        // Merge: move all tabs from dragged group into drop group
-        const sourceGroup = panelGroups.find(g => g.id === draggedGroupId)
-        if (sourceGroup) {
-          for (const tab of sourceGroup.tabs) {
-            moveTabToGroup(tab, dropGroupId)
-          }
-        }
+        // Merge: move all tabs from dragged group into drop group (single state update)
+        mergeGroupInto(draggedGroupId, dropGroupId)
       } else {
         // Reorder groups
         reorderGroups(draggedGroupId, dropGroupId)
@@ -215,7 +219,7 @@ export function AppShell() {
 
   const handleDragEnd = () => {
     setDragOverGroupId(null)
-    setDragOverMerge(false)
+    setDragOverMode(null)
     dragGroupRef.current = null
     dragTabRef.current = null
   }
@@ -237,7 +241,7 @@ export function AppShell() {
             <div className="flex flex-col shrink-0 border-r border-border bg-bg-primary" style={{ width: openFilesWidth }}>
               <OpenFilesPanel />
             </div>
-            <ResizeHandle side="right" onResize={handleOpenFilesResize} />
+            <ResizeHandle onResize={handleOpenFilesResize} />
           </>
         )}
 
@@ -258,7 +262,7 @@ export function AppShell() {
           const isFlexGroup = isSolo || group.id === flexGroupId
 
           const style: React.CSSProperties = isFlexGroup
-            ? { flex: 1, minWidth: MIN_PANEL_WIDTH }
+            ? { flex: 1, minWidth: minWidthForGroup(group.tabs) }
             : { width: group.width }
 
           const isDragOver = dragOverGroupId === group.id
@@ -275,7 +279,6 @@ export function AppShell() {
               {/* Resize handle between every adjacent pair */}
               {!isFirst && !isSolo && (
                 <ResizeHandle
-                  side="left"
                   onResize={(delta) => handlePanelResize(layoutGroups[index - 1].id, group.id, delta)}
                 />
               )}
@@ -289,17 +292,22 @@ export function AppShell() {
                   // Only clear if actually leaving this container (not entering a child)
                   if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                     setDragOverGroupId(null)
-                    setDragOverMerge(false)
+                    setDragOverMode(null)
                   }
                 }}
                 onDrop={(e) => handleGroupDrop(e, group.id)}
               >
-                {/* Drop indicator overlay */}
-                {isDragOver && dragOverMerge && (
-                  <div className="absolute inset-0 z-50 pointer-events-none rounded bg-accent/10 border-2 border-accent/50 border-dashed" />
+                {/* Drop indicator — merge: full panel overlay */}
+                {isDragOver && dragOverMode === 'merge' && (
+                  <div className="absolute inset-0 z-50 pointer-events-none bg-accent/15 border-2 border-accent rounded" />
                 )}
-                {isDragOver && !dragOverMerge && (
-                  <div className="absolute inset-y-0 left-0 w-1 z-50 pointer-events-none bg-accent rounded-full" />
+                {/* Drop indicator — before: thick left-edge bar */}
+                {isDragOver && dragOverMode === 'before' && (
+                  <div className="absolute inset-y-0 left-0 w-[3px] z-50 pointer-events-none bg-accent rounded-r-full shadow-[2px_0_8px_0px] shadow-accent/60" />
+                )}
+                {/* Drop indicator — after: thick right-edge bar */}
+                {isDragOver && dragOverMode === 'after' && (
+                  <div className="absolute inset-y-0 right-0 w-[3px] z-50 pointer-events-none bg-accent rounded-l-full shadow-[-2px_0_8px_0px] shadow-accent/60" />
                 )}
 
                 {/* Group tab bar (only when 2+ panels stacked) */}
@@ -307,7 +315,10 @@ export function AppShell() {
                   <PanelGroupTabBar
                     group={group}
                     onSelectTab={(tab) => setActiveGroupTab(group.id, tab)}
-                    onCloseTab={(tab) => splitTabToNewGroup(tab)}
+                    onCloseTab={(tab) => {
+                      const insertIdx = panelGroups.findIndex(g => g.id === group.id) + 1
+                      splitTabToNewGroup(tab, insertIdx)
+                    }}
                     groupDragHandlers={{
                       onDragStart: (e) => handleGroupDragStart(e, group.id),
                       onDragEnd: handleDragEnd,

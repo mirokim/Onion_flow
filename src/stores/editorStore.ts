@@ -36,7 +36,7 @@ export interface PanelGroup {
 export const DEFAULT_PANEL_WIDTHS: Record<PanelTab, number> = {
   canvas: 480,
   editor: 500,
-  wiki: 800,
+  wiki: 600,
   chapters: 350,
   ai: 450,
   openfiles: 180,
@@ -47,26 +47,19 @@ export const MAX_PANEL_WIDTH = 1200
 
 // Per-type minimum widths (overrides MIN_PANEL_WIDTH)
 const MIN_PANEL_TYPE_WIDTHS: Partial<Record<PanelTab, number>> = {
-  wiki: 800,
-}
-
-// Per-type maximum widths (overrides MAX_PANEL_WIDTH)
-const MAX_PANEL_TYPE_WIDTHS: Partial<Record<PanelTab, number>> = {
-  wiki: 1000,
+  wiki: 600,
 }
 
 function defaultWidthForTab(tab: PanelTab): number {
   return DEFAULT_PANEL_WIDTHS[tab] ?? 500
 }
 
-function minWidthForGroup(tabs: PanelTab[]): number {
+export function minWidthForGroup(tabs: PanelTab[]): number {
   return Math.max(MIN_PANEL_WIDTH, ...tabs.map(t => MIN_PANEL_TYPE_WIDTHS[t] ?? 0))
 }
 
 function maxWidthForGroup(tabs: PanelTab[]): number {
-  // If any tab has a per-type max, use the smallest one; otherwise use global max
-  const typeMaxes = tabs.map(t => MAX_PANEL_TYPE_WIDTHS[t]).filter((v): v is number => v != null)
-  return typeMaxes.length > 0 ? Math.min(...typeMaxes) : MAX_PANEL_WIDTH
+  return MAX_PANEL_WIDTH
 }
 
 // File tree node for the virtual file explorer
@@ -89,7 +82,8 @@ interface EditorState {
   uiScale: UISizeScale
   focusMode: boolean
   showOpenFilesPanel: boolean
-  openTabs: PanelTab[]          // derived from panelGroups (backward compat)
+  /** @deprecated derived from panelGroups — not persisted. Use panelGroups directly. */
+  openTabs: PanelTab[]
   panelGroups: PanelGroup[]     // primary panel layout state
   openFilesWidth: number
   pinnedPanels: PanelTab[]
@@ -137,6 +131,8 @@ interface EditorState {
   moveTabToGroup: (tab: PanelTab, targetGroupId: string) => void
   splitTabToNewGroup: (tab: PanelTab, insertIndex?: number) => void
   reorderGroups: (fromId: string, toId: string) => void
+  /** Move all tabs from sourceGroupId into targetGroupId in a single state update */
+  mergeGroupInto: (sourceGroupId: string, targetGroupId: string) => void
   setGroupWidth: (groupId: string, width: number) => void
   setOpenFilesWidth: (w: number) => void
   setShowLineNumbers: (v: boolean) => void
@@ -214,6 +210,7 @@ export const useEditorStore = create<EditorState>()(
         if (isOpen) {
           // Close: remove tab from its group
           if (allOpen.length <= 1) return s // must keep at least 1
+          if (s.pinnedPanels.includes(tab)) return s // pinned panels cannot be closed
           const groups = s.panelGroups
             .map(g => {
               if (!g.tabs.includes(tab)) return g
@@ -276,6 +273,23 @@ export const useEditorStore = create<EditorState>()(
         const newGroup: PanelGroup = { id: generateId(), tabs: [tab], activeTab: tab, width: defaultWidthForTab(tab) }
         const idx = insertIndex ?? groups.length
         groups.splice(idx, 0, newGroup)
+        return { panelGroups: groups, openTabs: groups.flatMap(g => g.tabs) }
+      }),
+
+      mergeGroupInto: (sourceGroupId, targetGroupId) => set((s) => {
+        const sourceGroup = s.panelGroups.find(g => g.id === sourceGroupId)
+        if (!sourceGroup || sourceGroupId === targetGroupId) return s
+        // Add all source tabs into target group (skip duplicates), then remove source group
+        const groups = s.panelGroups
+          .map(g => {
+            if (g.id !== targetGroupId) return g
+            const merged = [...g.tabs]
+            for (const tab of sourceGroup.tabs) {
+              if (!merged.includes(tab)) merged.push(tab)
+            }
+            return { ...g, tabs: merged, activeTab: g.activeTab }
+          })
+          .filter(g => g.id !== sourceGroupId)
         return { panelGroups: groups, openTabs: groups.flatMap(g => g.tabs) }
       }),
 
@@ -617,7 +631,7 @@ export const useEditorStore = create<EditorState>()(
     }),
     {
       name: 'onion-flow-editor',
-      version: 15,
+      version: 17,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         theme: state.theme,
@@ -625,7 +639,7 @@ export const useEditorStore = create<EditorState>()(
         uiScale: state.uiScale,
         showOpenFilesPanel: state.showOpenFilesPanel,
         panelGroups: state.panelGroups,
-        openTabs: state.openTabs,
+        // openTabs is derived from panelGroups — not persisted separately
         openFilesWidth: state.openFilesWidth,
         pinnedPanels: state.pinnedPanels,
         foldedNodesByChapter: state.foldedNodesByChapter,
@@ -643,6 +657,8 @@ export const useEditorStore = create<EditorState>()(
             const w = g.width || defaultWidthForTab(g.tabs[0])
             return { ...g, width: Math.min(max, Math.max(min, w)) }
           })
+          // openTabs is derived from panelGroups — always recompute on hydration
+          merged.openTabs = merged.panelGroups.flatMap(g => g.tabs)
         }
         return merged
       },
@@ -749,6 +765,29 @@ export const useEditorStore = create<EditorState>()(
             const max = maxWidthForGroup(tabs)
             const currentWidth = g.width ?? defaultWidthForTab(tabs[0])
             return { ...g, width: Math.min(max, Math.max(min, currentWidth)) }
+          })
+        }
+        // v16: remove wiki width cap (was 1000, now uses global max 1200)
+        // Re-clamp all groups — existing widths in [800,1000] are preserved as-is
+        if (version < 16) {
+          const groups: any[] = persisted.panelGroups ?? []
+          persisted.panelGroups = groups.map((g: any) => {
+            const tabs: PanelTab[] = g.tabs ?? []
+            const min = minWidthForGroup(tabs)
+            const max = maxWidthForGroup(tabs)
+            const currentWidth = g.width ?? defaultWidthForTab(tabs[0])
+            return { ...g, width: Math.min(max, Math.max(min, currentWidth)) }
+          })
+        }
+        // v17: wiki default width changed from 800 → 600.
+        // Reset wiki groups stuck at exactly 800 (old forced minimum/default) to the new default.
+        if (version < 17) {
+          const groups: any[] = persisted.panelGroups ?? []
+          persisted.panelGroups = groups.map((g: any) => {
+            if (g.tabs?.includes('wiki') && g.width === 800) {
+              return { ...g, width: DEFAULT_PANEL_WIDTHS.wiki } // 600
+            }
+            return g
           })
         }
         return persisted as EditorState
