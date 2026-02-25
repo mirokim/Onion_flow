@@ -608,7 +608,7 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="w-full h-1.5 accent-accent cursor-pointer"
+                className="nodrag w-full h-1.5 accent-accent cursor-pointer"
               />
             </div>
             <div>
@@ -689,7 +689,7 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
               }}
               onMouseDown={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
-              className="w-full h-1.5 accent-accent cursor-pointer"
+              className="nodrag w-full h-1.5 accent-accent cursor-pointer"
             />
           </div>
         )}
@@ -724,7 +724,7 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
-                className="w-full h-1.5 accent-accent cursor-pointer"
+                className="nodrag w-full h-1.5 accent-accent cursor-pointer"
               />
             </div>
             <p className="text-[9px] text-text-muted/60">
@@ -751,7 +751,7 @@ function BaseNodeComponent({ data, selected }: NodeProps & { data: BaseNodeData 
               }}
               onMouseDown={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
-              className="w-full h-1.5 accent-accent cursor-pointer"
+              className="nodrag w-full h-1.5 accent-accent cursor-pointer"
             />
           </div>
         )}
