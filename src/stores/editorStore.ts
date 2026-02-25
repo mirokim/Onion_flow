@@ -39,7 +39,7 @@ export const DEFAULT_PANEL_WIDTHS: Record<PanelTab, number> = {
   wiki: 600,
   chapters: 350,
   ai: 450,
-  openfiles: 300,
+  openfiles: 260,
 }
 
 export const MIN_PANEL_WIDTH = 200
@@ -179,7 +179,7 @@ export const useEditorStore = create<EditorState>()(
         { id: 'default-canvas', tabs: ['canvas' as PanelTab], activeTab: 'canvas' as PanelTab, width: 480 },
         { id: 'default-editor', tabs: ['editor' as PanelTab], activeTab: 'editor' as PanelTab, width: 500 },
       ] as PanelGroup[],
-      openFilesWidth: 300,
+      openFilesWidth: 260,
       pinnedPanels: [] as PanelTab[],
       showLineNumbers: false,
       lineNumberOpacity: 0.4,
