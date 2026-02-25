@@ -565,13 +565,6 @@ export function OpenFilesPanel() {
     })
   }
 
-  const handleNewChapter = async () => {
-    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
-    const chapterCount = chapters.filter(c => c.type === 'chapter').length
-    const ch = await createChapter(`챕터 ${chapterCount + 1}`)
-    selectChapter(ch.id)
-  }
-
   const handleRootDrop = (e: React.DragEvent) => {
     e.preventDefault()
     const draggedId = e.dataTransfer.getData('application/x-filetree-node')
@@ -600,10 +593,6 @@ export function OpenFilesPanel() {
         <button onClick={handleNewVolume} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 볼륨">
           <BookOpen className="w-3.5 h-3.5" />
         </button>
-        <button onClick={handleNewChapter} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 챕터">
-          <FileText className="w-3.5 h-3.5" />
-        </button>
-
         <div className="w-px h-4 bg-border mx-0.5" />
 
         <button

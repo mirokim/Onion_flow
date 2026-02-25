@@ -63,7 +63,7 @@ export function TopBar({ onOpenProjectDialog, onOpenSettings }: TopBarProps) {
 
         <div className="h-4 w-px bg-border" />
 
-        <img src="/onion.svg" alt="Onion Flow" className="w-5 h-5" />
+        <img src="/onion.png" alt="Onion Flow" className="w-5 h-5" />
         <span className="text-xs font-bold tracking-widest text-text-muted">ONION FLOW</span>
 
         <div className="h-4 w-px bg-border" />
