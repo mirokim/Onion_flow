@@ -34,11 +34,11 @@ import { ProjectDialog } from '@/components/common/ProjectDialog'
 import { SettingsDialog, type SettingsSection } from '@/components/common/SettingsDialog'
 import { cn } from '@/lib/utils'
 
-const MIN_OPENFILES_WIDTH = 120
-const MAX_OPENFILES_WIDTH = 400
+const MIN_OPENFILES_WIDTH = 144
+const MAX_OPENFILES_WIDTH = 480
 
-/** Panels that participate in the dynamic layout (excludes openfiles) */
-const LAYOUT_PANELS = new Set<PanelTab>(['canvas', 'editor', 'wiki', 'chapters', 'ai'])
+/** Panels that participate in the dynamic layout (excludes openfiles and chapters) */
+const LAYOUT_PANELS = new Set<PanelTab>(['canvas', 'editor', 'wiki', 'ai'])
 
 function PanelContent({ tab, panelDragHandlers, isGrouped }: {
   tab: PanelTab

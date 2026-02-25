@@ -3,7 +3,7 @@
  * Open tabs appear as active icons. Closed tabs appear below a divider as inactive icons.
  * Panel reordering is done by dragging each panel's header/tab bar.
  */
-import { LayoutGrid, FileText, BookOpen, Library, MessageSquare } from 'lucide-react'
+import { LayoutGrid, FileText, BookOpen, MessageSquare } from 'lucide-react'
 import { useEditorStore, type PanelTab } from '@/stores/editorStore'
 import { cn } from '@/lib/utils'
 
@@ -11,7 +11,6 @@ const ALL_TABS: { key: PanelTab; label: string; icon: typeof LayoutGrid }[] = [
   { key: 'canvas', label: 'Story Flow', icon: LayoutGrid },
   { key: 'editor', label: 'Editor', icon: FileText },
   { key: 'wiki', label: 'Wiki', icon: BookOpen },
-  { key: 'chapters', label: 'Chapters', icon: Library },
   { key: 'ai', label: 'AI', icon: MessageSquare },
 ]
 

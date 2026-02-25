@@ -39,7 +39,7 @@ export const DEFAULT_PANEL_WIDTHS: Record<PanelTab, number> = {
   wiki: 600,
   chapters: 350,
   ai: 450,
-  openfiles: 180,
+  openfiles: 216,
 }
 
 export const MIN_PANEL_WIDTH = 200
