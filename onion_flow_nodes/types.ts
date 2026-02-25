@@ -41,11 +41,43 @@
  */
 import type { CanvasNodeCategory } from '@/types'
 
+/**
+ * Semantic data type carried by a handle connection.
+ * '*' is wildcard — compatible with every other type.
+ */
+export type HandleDataType =
+  | 'CONTEXT'    // memory, motivation, event, wiki, image_load, document_load
+  | 'CHARACTER'  // character node output
+  | 'PLOT'       // plot_genre, plot_structure, plot_context
+  | 'DIRECTION'  // pov, pacing, style_transfer, output_format
+  | 'TEXT'       // AI text output (storyteller, summarizer, etc.)
+  | '*'          // wildcard — accepts / emits any type
+
+/** Color map for handle data types. Single source of truth. */
+export const HANDLE_DATA_TYPE_COLORS: Record<HandleDataType, string> = {
+  CONTEXT:   '#4a90d9',
+  CHARACTER: '#22d3ee',
+  PLOT:      '#e91e63',
+  DIRECTION: '#e6a23c',
+  TEXT:      '#67c23a',
+  '*':       '#6b7280',
+}
+
 export interface HandleDefinition {
   id: string
   label: string
   type: 'source' | 'target'
   position: 'left' | 'right' | 'top' | 'bottom'
+  /**
+   * For source handles: the data type this handle emits.
+   * Defaults to '*' if omitted (backward compatible).
+   */
+  dataType?: HandleDataType
+  /**
+   * For target handles: list of data types this handle accepts.
+   * Defaults to ['*'] if omitted (backward compatible).
+   */
+  acceptsTypes?: HandleDataType[]
 }
 
 export interface NodeTypeDefinition {

@@ -100,3 +100,42 @@ export const PLOT_STRUCTURE_OPTIONS: PlotOption[] = [
   { id: 'quest', label: '퀘스트 구조', labelEn: 'Quest Structure', description: '목표를 향한 여정과 도전의 연쇄로 이루어진 구조', group: 'structure' },
   { id: 'save_the_cat', label: 'Save the Cat 비트', labelEn: 'Save the Cat Beat Sheet', description: '15개 비트로 구성된 현대 시나리오 작법 구조', group: 'structure' },
 ]
+
+// ── Output Format Options ──
+
+export interface OutputFormatOption {
+  id: string
+  label: string
+  labelEn: string
+  description: string
+  group: string
+}
+
+export const OUTPUT_FORMAT_GROUPS: { key: string; label: string }[] = [
+  { key: 'fiction', label: '소설' },
+  { key: 'script', label: '시나리오/대본' },
+  { key: 'nonfiction', label: '비소설' },
+  { key: 'poetry', label: '시/가사' },
+]
+
+export const OUTPUT_FORMAT_OPTIONS: OutputFormatOption[] = [
+  // ── 소설 ──
+  { id: 'novel_chapter', label: '소설 챕터', labelEn: 'Novel Chapter', group: 'fiction', description: '소설 챕터 형식으로 작성. 산문체로 서술하며 묘사와 내적 독백이 풍부하게 포함됩니다.' },
+  { id: 'short_story', label: '단편소설', labelEn: 'Short Story', group: 'fiction', description: '완결된 단편소설 형식으로 작성. 간결한 도입-전개-결말 구조로 이야기를 마무리합니다.' },
+
+  // ── 시나리오/대본 ──
+  { id: 'screenplay', label: '영화 시나리오', labelEn: 'Screenplay', group: 'script', description: '영화 시나리오 형식으로 작성. 씬 헤딩(INT./EXT. 장소 - 시간대), 지문(액션), 캐릭터명(대문자), 대사를 엄격히 구분하여 작성합니다.' },
+  { id: 'tv_drama', label: 'TV 드라마 대본', labelEn: 'TV Drama Script', group: 'script', description: 'TV 드라마 대본 형식으로 작성. 씬 번호, 지문(장소/상황 설명), 캐릭터 이름: 대사 구조로 작성합니다.' },
+  { id: 'webtoon', label: '웹툰 스크립트', labelEn: 'Webtoon Script', group: 'script', description: '웹툰 스크립트 형식으로 작성. 컷 번호, 배경 설명, [캐릭터] 대사, (효과음/지문)으로 구성합니다.' },
+  { id: 'stage_play', label: '연극 대본', labelEn: 'Stage Play', group: 'script', description: '연극 대본 형식으로 작성. 막/장 구분, 무대 지시문(괄호), 캐릭터명: 대사 구조로 작성합니다.' },
+
+  // ── 비소설 ──
+  { id: 'report', label: '보고서', labelEn: 'Report', group: 'nonfiction', description: '공식 보고서 형식으로 작성. 제목, 요약, 본론(섹션 헤더 포함), 결론 구조로 체계적이고 객관적으로 서술합니다.' },
+  { id: 'essay', label: '에세이', labelEn: 'Essay', group: 'nonfiction', description: '에세이 형식으로 작성. 개인적 통찰과 논리적 주장이 담긴 산문으로, 자연스러운 흐름으로 서술합니다.' },
+  { id: 'news', label: '뉴스 기사', labelEn: 'News Article', group: 'nonfiction', description: '뉴스 기사 형식으로 작성. 역피라미드 구조로 핵심 사실(5W1H)부터 시작하여 세부 내용 순으로 서술합니다.' },
+  { id: 'blog', label: '블로그 포스트', labelEn: 'Blog Post', group: 'nonfiction', description: '블로그 포스트 형식으로 작성. 친근한 문체로 소제목과 단락을 나눠 독자가 읽기 쉽게 구성합니다.' },
+
+  // ── 시/가사 ──
+  { id: 'poem', label: '시', labelEn: 'Poem', group: 'poetry', description: '시 형식으로 작성. 행과 연으로 구성하며 운율과 이미지를 활용한 압축적 표현으로 감정을 전달합니다.' },
+  { id: 'lyrics', label: '노래 가사', labelEn: 'Song Lyrics', group: 'poetry', description: '노래 가사 형식으로 작성. 절(Verse)–후렴(Chorus)–절–후렴 구조를 기본으로 하며 라임과 리듬감을 살립니다.' },
+]

@@ -83,9 +83,9 @@ export interface DailyStats {
 export type CanvasNodeType =
   | 'character' | 'event' | 'wiki'
   | 'memory' | 'motivation'
-  | 'image_load' | 'document_load' | 'plot_context'
-  | 'pov' | 'pacing' | 'style_transfer'
-  | 'storyteller' | 'summarizer' | 'switch'
+  | 'image_load' | 'document_load' | 'plot_context' | 'plot_genre' | 'plot_structure'
+  | 'pov' | 'pacing' | 'style_transfer' | 'output_format'
+  | 'storyteller' | 'summarizer' | 'switch' | 'smart_switch'
   | 'save_content' | 'preview_content'
   | 'what_if' | 'show_dont_tell' | 'tikitaka'
   | 'cliffhanger' | 'virtual_reader'

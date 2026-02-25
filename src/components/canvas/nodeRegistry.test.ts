@@ -147,12 +147,22 @@ describe('nodeRegistry', () => {
       expect(group.category).toBe('structure')
     })
 
-    it('plot_context node should have genre, structure, wikiEntryId in defaultData', () => {
+    it('plot_context node should have wikiEntryId in defaultData and plot category', () => {
       const plot = NODE_REGISTRY.find(n => n.type === 'plot_context')!
       expect(plot.category).toBe('plot')
-      expect(plot.defaultData).toHaveProperty('selectedGenre')
-      expect(plot.defaultData).toHaveProperty('selectedStructure')
       expect(plot.defaultData).toHaveProperty('wikiEntryId')
+    })
+
+    it('plot_genre node should have selectedGenre in defaultData', () => {
+      const plotGenre = NODE_REGISTRY.find(n => n.type === 'plot_genre')!
+      expect(plotGenre.category).toBe('plot')
+      expect(plotGenre.defaultData).toHaveProperty('selectedGenre')
+    })
+
+    it('plot_structure node should have selectedStructure in defaultData', () => {
+      const plotStructure = NODE_REGISTRY.find(n => n.type === 'plot_structure')!
+      expect(plotStructure.category).toBe('plot')
+      expect(plotStructure.defaultData).toHaveProperty('selectedStructure')
     })
 
     it('preview_changed node should accept character input', () => {
@@ -208,16 +218,33 @@ describe('nodeRegistry', () => {
       expect(getNodesByCategory('context')).toHaveLength(7)
     })
 
-    it('should return 1 plot node', () => {
-      expect(getNodesByCategory('plot')).toHaveLength(1)
+    it('should return 3 plot nodes (plot_genre, plot_structure, plot_context)', () => {
+      const plots = getNodesByCategory('plot')
+      expect(plots).toHaveLength(3)
+      const types = plots.map(n => n.type)
+      expect(types).toContain('plot_genre')
+      expect(types).toContain('plot_structure')
+      expect(types).toContain('plot_context')
     })
 
-    it('should return 3 direction nodes', () => {
-      expect(getNodesByCategory('direction')).toHaveLength(3)
+    it('should return 4 direction nodes (pov, pacing, style_transfer, output_format)', () => {
+      const dirs = getNodesByCategory('direction')
+      expect(dirs).toHaveLength(4)
+      const types = dirs.map(n => n.type)
+      expect(types).toContain('pov')
+      expect(types).toContain('pacing')
+      expect(types).toContain('style_transfer')
+      expect(types).toContain('output_format')
     })
 
-    it('should return 3 processing nodes', () => {
-      expect(getNodesByCategory('processing')).toHaveLength(3)
+    it('should return 4 processing nodes (storyteller, summarizer, switch, smart_switch)', () => {
+      const procs = getNodesByCategory('processing')
+      expect(procs).toHaveLength(4)
+      const types = procs.map(n => n.type)
+      expect(types).toContain('storyteller')
+      expect(types).toContain('summarizer')
+      expect(types).toContain('switch')
+      expect(types).toContain('smart_switch')
     })
 
     it('should return 6 special nodes', () => {

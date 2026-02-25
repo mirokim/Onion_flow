@@ -23,7 +23,8 @@ import { BaseNode } from '@nodes/_base/BaseNode'
 import { GroupNode } from '@nodes/group/GroupNode'
 import { CanvasToolbar } from './CanvasToolbar'
 import { CanvasContextMenu } from './CanvasContextMenu'
-import { getNodeDefinition, type NodeTypeDefinition } from '@nodes/index'
+import { getNodeDefinition, type NodeTypeDefinition, type HandleDataType, HANDLE_DATA_TYPE_COLORS } from '@nodes/index'
+import { isTypeCompatible } from '@/utils/handleCompatibility'
 import { toast } from '@/components/common/Toast'
 import {
   addNodeWithUndo,
@@ -114,16 +115,26 @@ function NodeCanvasInner() {
   }, [canvasNodes])
 
   const rfEdges: Edge[] = useMemo(() =>
-    canvasWires.map(w => ({
-      id: w.id,
-      source: w.sourceNodeId,
-      target: w.targetNodeId,
-      sourceHandle: w.sourceHandle,
-      targetHandle: w.targetHandle,
-      animated: true,
-      style: { stroke: 'var(--color-accent)', strokeWidth: 2 },
-    })),
-    [canvasWires],
+    canvasWires.map(w => {
+      // Derive wire color from source handle's dataType
+      const srcNode = canvasNodes.find(n => n.id === w.sourceNodeId)
+      const srcDef = srcNode ? getNodeDefinition(srcNode.type) : undefined
+      const srcHandle = srcDef?.outputs.find(h => h.id === w.sourceHandle)
+      const wireColor = srcHandle?.dataType
+        ? (HANDLE_DATA_TYPE_COLORS[srcHandle.dataType] ?? HANDLE_DATA_TYPE_COLORS['*'])
+        : HANDLE_DATA_TYPE_COLORS['*']
+
+      return {
+        id: w.id,
+        source: w.sourceNodeId,
+        target: w.targetNodeId,
+        sourceHandle: w.sourceHandle,
+        targetHandle: w.targetHandle,
+        animated: true,
+        style: { stroke: wireColor, strokeWidth: 2 },
+      }
+    }),
+    [canvasWires, canvasNodes],
   )
 
   // ── Controlled component: local selection state, Zustand = single source of truth ──
@@ -216,6 +227,8 @@ function NodeCanvasInner() {
 
   // ── Edge reconnection tracking ──
   const reconnectSuccessful = useRef(false)
+  // Track which edge is currently being reconnected (to exclude it from duplicate checks)
+  const reconnectingEdgeRef = useRef<string | null>(null)
 
   // ── Wire-drop node picker: track pending connection ──
   const pendingConnectionRef = useRef<{
@@ -424,19 +437,35 @@ function NodeCanvasInner() {
     if (!connection.source || !connection.target) return false
     if (connection.source === connection.target) return false
 
-    // Check for duplicate wires
-    const sourceHandle = connection.sourceHandle ?? null
-    const targetHandle = connection.targetHandle ?? null
+    // Check for duplicate wires — one wire per node pair (any handle combination)
+    // During edge reconnection, exclude the edge being moved so re-routing to a different
+    // handle on the same target node is still allowed.
     const exists = storeWires.some(w =>
+      w.id !== reconnectingEdgeRef.current &&
       w.sourceNodeId === connection.source &&
-      w.targetNodeId === connection.target &&
-      w.sourceHandle === sourceHandle &&
-      w.targetHandle === targetHandle
+      w.targetNodeId === connection.target
     )
     if (exists) return false
 
+    // ── Handle data type compatibility check ──
+    const srcNode = canvasNodes.find(n => n.id === connection.source)
+    const tgtNode = canvasNodes.find(n => n.id === connection.target)
+    if (srcNode && tgtNode) {
+      const srcDef = getNodeDefinition(srcNode.type)
+      const tgtDef = getNodeDefinition(tgtNode.type)
+      if (srcDef && tgtDef) {
+        const srcHandle = srcDef.outputs.find(h => h.id === connection.sourceHandle)
+        const tgtHandle = tgtDef.inputs.find(h => h.id === connection.targetHandle)
+        if (srcHandle && tgtHandle) {
+          const srcType: HandleDataType = srcHandle.dataType ?? '*'
+          const accepts: HandleDataType[] = tgtHandle.acceptsTypes ?? ['*']
+          if (!isTypeCompatible(srcType, accepts)) return false
+        }
+      }
+    }
+
     return true
-  }, [storeWires])
+  }, [storeWires, canvasNodes])
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -562,8 +591,9 @@ function NodeCanvasInner() {
   )
 
   // ── Edge reconnection: drag handle to reconnect or drop on empty space to disconnect ──
-  const handleReconnectStart = useCallback(() => {
+  const handleReconnectStart = useCallback((_event: React.MouseEvent, edge: Edge) => {
     reconnectSuccessful.current = false
+    reconnectingEdgeRef.current = edge.id
   }, [])
 
   const handleReconnect = useCallback(
@@ -589,6 +619,7 @@ function NodeCanvasInner() {
       if (!reconnectSuccessful.current) {
         disconnectWireWithUndo(edge.id)
       }
+      reconnectingEdgeRef.current = null
     },
     [],
   )
