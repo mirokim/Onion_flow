@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readProjectFile: (folderPath, filename) =>
     ipcRenderer.invoke('file:readProjectFile', folderPath, filename),
 
+  // Style Analyzer — URL fetch & text file open
+  fetchUrl: (url) => ipcRenderer.invoke('file:fetchUrl', url),
+  openTextFile: () => ipcRenderer.invoke('file:openTextFile'),
+
   // Safe storage — OS-level encryption for API keys
   safeStorageAvailable: () => ipcRenderer.invoke('safe:isAvailable'),
   safeEncrypt: (plainText) => ipcRenderer.invoke('safe:encrypt', plainText),

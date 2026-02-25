@@ -140,7 +140,7 @@ export const BUILTIN_NODES: NodeTypeDefinition[] = [
     color: NODE_CATEGORY_COLORS.direction,
     inputs: [{ id: 'in', label: 'Input', type: 'target', position: 'left' }],
     outputs: [{ id: 'out', label: 'Output', type: 'source', position: 'right' }],
-    defaultData: { sampleText: '', authorName: '', label: 'Style' },
+    defaultData: { sampleText: '', authorName: '', styleFilePath: '', label: 'Style' },
   },
 
   // ── Processing Nodes ──

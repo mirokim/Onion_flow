@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain, dialog, session, safeStorage } = require('electron')
+const { app, BrowserWindow, shell, ipcMain, dialog, session, safeStorage, net, nativeImage } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
@@ -37,7 +37,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 600,
     title: 'ONION FLOW',
-    icon: path.join(__dirname, '..', 'public', 'onion.svg'),
+    icon: nativeImage.createFromPath(path.join(__dirname, '..', 'public', 'onion.png')),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -198,6 +198,34 @@ ipcMain.handle('file:readProjectFile', async (_event, folderPath, filename) => {
     }
     const content = fs.readFileSync(filePath, 'utf-8')
     return { success: true, data: content }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+// ── IPC: Style Analyzer — URL fetch & text file open ──
+
+ipcMain.handle('file:fetchUrl', async (_event, url) => {
+  try {
+    const res = await net.fetch(url, { bypassCustomProtocolHandlers: false })
+    const text = await res.text()
+    return { success: true, data: text }
+  } catch (err) {
+    return { success: false, error: err.message }
+  }
+})
+
+ipcMain.handle('file:openTextFile', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '텍스트 파일 선택',
+      filters: [{ name: 'Text Files', extensions: ['txt', 'md'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const filePath = result.filePaths[0]
+    const content = fs.readFileSync(filePath, 'utf-8')
+    return { success: true, data: content, filename: path.basename(filePath) }
   } catch (err) {
     return { success: false, error: err.message }
   }
