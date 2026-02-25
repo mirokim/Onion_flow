@@ -65,7 +65,7 @@ function maxWidthForGroup(tabs: PanelTab[]): number {
 // File tree node for the virtual file explorer
 export interface FileTreeNode {
   id: string
-  type: 'folder' | 'canvas' | 'chapter'
+  type: 'folder' | 'canvas' | 'chapter' | 'volume'
   name: string
   targetId?: string          // for canvas/chapter: references the actual tab/chapter ID
   children: string[]         // for folders: ordered child node IDs
@@ -179,7 +179,7 @@ export const useEditorStore = create<EditorState>()(
         { id: 'default-canvas', tabs: ['canvas' as PanelTab], activeTab: 'canvas' as PanelTab, width: 480 },
         { id: 'default-editor', tabs: ['editor' as PanelTab], activeTab: 'editor' as PanelTab, width: 500 },
       ] as PanelGroup[],
-      openFilesWidth: 180,
+      openFilesWidth: 216,
       pinnedPanels: [] as PanelTab[],
       showLineNumbers: false,
       lineNumberOpacity: 0.4,

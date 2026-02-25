@@ -1,8 +1,8 @@
 /**
- * OpenFilesPanel — File explorer with virtual folder structure + Volume/Chapter tree.
+ * OpenFilesPanel — File explorer with virtual folder structure.
  * Toolbar with creation/sort/expand actions + recursive tree view.
  * Right-click context menu for file operations.
- * Bottom section: volume/chapter hierarchy with inline creation buttons.
+ * Supports node types: folder, canvas, chapter, volume.
  */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useEditorStore, type FileTreeNode } from '@/stores/editorStore'
@@ -18,7 +18,6 @@ import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
 import { downloadTextFile, downloadJsonFile, extractPlainText } from '@/export/exportUtils'
 import { toast } from '@/components/common/Toast'
-import type { ChapterTreeItem } from '@/types'
 
 /* ── types ── */
 
@@ -39,9 +38,11 @@ function sortNodeIds(
     .map(id => nodes[id])
     .filter(Boolean)
     .sort((a, b) => {
-      // folders first
-      if (a.type === 'folder' && b.type !== 'folder') return -1
-      if (a.type !== 'folder' && b.type === 'folder') return 1
+      // volumes and folders first
+      const aIsGroup = a.type === 'folder' || a.type === 'volume'
+      const bIsGroup = b.type === 'folder' || b.type === 'volume'
+      if (aIsGroup && !bIsGroup) return -1
+      if (!aIsGroup && bIsGroup) return 1
       return sortBy === 'name'
         ? a.name.localeCompare(b.name)
         : a.createdAt - b.createdAt
@@ -87,6 +88,8 @@ function FileTreeNodeComponent({
   const toggleTab = useEditorStore(s => s.toggleTab)
   const editorTabs = useEditorStore(s => s.editorTabs)
 
+  const deleteChapter = useProjectStore(s => s.deleteChapter)
+
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [dragOverState, setDragOverState] = useState<'above' | 'inside' | 'below' | null>(null)
@@ -101,6 +104,8 @@ function FileTreeNodeComponent({
   }, [renamingNodeId, nodeId, node, onRenamingDone])
 
   if (!node) return null
+
+  const isGroupNode = node.type === 'folder' || node.type === 'volume'
 
   const isTargetOpen = node.type === 'canvas'
     ? openCanvasTabIds.has(node.targetId!)
@@ -121,7 +126,7 @@ function FileTreeNodeComponent({
   )
 
   const handleClick = () => {
-    if (node.type === 'folder') {
+    if (isGroupNode) {
       toggleFileTreeNodeExpanded(nodeId)
     } else if (node.type === 'canvas' && node.targetId) {
       setActiveCanvasTab(node.targetId)
@@ -136,7 +141,7 @@ function FileTreeNodeComponent({
   }
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (node.type === 'folder') return // folders use default browser menu
+    if (isGroupNode) return
     e.preventDefault()
     e.stopPropagation()
     onContextMenu({ x: e.clientX, y: e.clientY, nodeId })
@@ -156,7 +161,7 @@ function FileTreeNodeComponent({
     const y = e.clientY - rect.top
     const h = rect.height
 
-    if (node.type === 'folder') {
+    if (isGroupNode) {
       if (y < h * 0.25) setDragOverState('above')
       else if (y > h * 0.75) setDragOverState('below')
       else setDragOverState('inside')
@@ -174,7 +179,7 @@ function FileTreeNodeComponent({
       return
     }
 
-    if (dragOverState === 'inside' && node.type === 'folder') {
+    if (dragOverState === 'inside' && isGroupNode) {
       moveFileTreeNode(draggedId, nodeId)
     } else if (dragOverState === 'above') {
       moveFileTreeNode(draggedId, node.parentId, nodeId)
@@ -190,11 +195,25 @@ function FileTreeNodeComponent({
     setDragOverState(null)
   }
 
-  const icon = node.type === 'folder'
-    ? (node.isExpanded ? <FolderOpen className="w-3.5 h-3.5 shrink-0 text-text-muted" /> : <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />)
-    : node.type === 'canvas'
-      ? <LayoutGrid className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-      : <FileText className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (node.type === 'volume' && node.targetId) {
+      // Also remove from projectStore
+      deleteChapter(node.targetId)
+    }
+    removeFileTreeNode(nodeId)
+  }
+
+  // Icon per node type
+  const icon = node.type === 'volume'
+    ? <BookOpen className="w-3.5 h-3.5 shrink-0 text-accent/70" />
+    : node.type === 'folder'
+      ? (node.isExpanded
+          ? <FolderOpen className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+          : <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />)
+      : node.type === 'canvas'
+        ? <LayoutGrid className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+        : <FileText className="w-3.5 h-3.5 shrink-0 text-text-muted" />
 
   return (
     <div>
@@ -207,7 +226,7 @@ function FileTreeNodeComponent({
         className={cn(
           'group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors text-xs',
           isActive ? 'bg-bg-hover/60 text-text-primary' : 'hover:bg-bg-hover text-text-primary',
-          !isTargetOpen && node.type !== 'folder' && 'opacity-40',
+          !isTargetOpen && node.type !== 'folder' && node.type !== 'volume' && 'opacity-40',
           dragOverState === 'above' && 'border-t-2 border-accent',
           dragOverState === 'below' && 'border-b-2 border-accent',
           dragOverState === 'inside' && 'bg-accent/10',
@@ -217,7 +236,8 @@ function FileTreeNodeComponent({
         onContextMenu={handleContextMenu}
         onDoubleClick={() => { setIsRenaming(true); setRenameValue(node.name) }}
       >
-        {node.type === 'folder' && (
+        {/* Expand/collapse chevron for folder/volume */}
+        {isGroupNode && (
           <button
             onClick={(e) => { e.stopPropagation(); toggleFileTreeNodeExpanded(nodeId) }}
             className="shrink-0 text-text-muted hover:text-text-primary"
@@ -250,12 +270,15 @@ function FileTreeNodeComponent({
             className="flex-1 bg-transparent border-b border-accent outline-none text-xs px-0.5"
           />
         ) : (
-          <span className="truncate flex-1">{node.name}</span>
+          <span className={cn('truncate flex-1', node.type === 'volume' && 'font-semibold')}>
+            {node.name}
+          </span>
         )}
 
-        {node.type === 'folder' && (
+        {/* Delete button for folder/volume nodes */}
+        {isGroupNode && (
           <button
-            onClick={(e) => { e.stopPropagation(); removeFileTreeNode(nodeId) }}
+            onClick={handleDelete}
             className="shrink-0 opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 transition"
           >
             <Trash2 className="w-3 h-3" />
@@ -263,7 +286,8 @@ function FileTreeNodeComponent({
         )}
       </div>
 
-      {node.type === 'folder' && node.isExpanded && sortedChildren.length > 0 && (
+      {/* Children */}
+      {isGroupNode && node.isExpanded && sortedChildren.length > 0 && (
         <div>
           {sortedChildren.map(childId => (
             <FileTreeNodeComponent
@@ -316,7 +340,6 @@ function FileTreeContextMenu({
 
   const exportCanvas = useCanvasStore(s => s.exportCanvas)
 
-  // Click-outside, right-click-outside & Escape close
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) onClose()
@@ -337,9 +360,8 @@ function FileTreeContextMenu({
     }
   }, [onClose])
 
-  if (!node || node.type === 'folder') return null
+  if (!node || node.type === 'folder' || node.type === 'volume') return null
 
-  // Position: keep within viewport
   const style: React.CSSProperties = {
     position: 'fixed',
     left: menu.x,
@@ -348,8 +370,6 @@ function FileTreeContextMenu({
   }
 
   const isCanvas = node.type === 'canvas'
-
-  // ── Actions ──
 
   const handleOpenInNewTab = () => {
     if (isCanvas && node.targetId) {
@@ -372,14 +392,12 @@ function FileTreeContextMenu({
       openEditorTab(node.targetId, node.name)
     }
     if (!openTabs.includes(panelType)) toggleTab(panelType)
-    // Split the panel into its own group (new column)
     splitTabToNewGroup(panelType)
     onClose()
   }
 
   const handleDuplicate = async () => {
     if (isCanvas && node.targetId) {
-      // For canvas: open a new canvas tab view (same target, but conceptually a new view)
       const { generateId } = await import('@/lib/utils')
       openCanvasTab(generateId(), `${node.name} (복사본)`)
       toast.success('캔버스 복사본이 생성되었습니다.')
@@ -416,7 +434,6 @@ function FileTreeContextMenu({
 
   const handleDelete = async () => {
     if (isCanvas && node.targetId) {
-      // Close the canvas tab if open
       const tab = canvasTabs.find(t => t.targetId === node.targetId)
       if (tab) closeCanvasTab(tab.id)
       removeFileTreeNode(menu.nodeId)
@@ -435,7 +452,6 @@ function FileTreeContextMenu({
       style={style}
       className="min-w-[160px] bg-bg-surface border border-border rounded-lg shadow-xl overflow-hidden py-1"
     >
-      {/* Open actions */}
       <button onClick={handleOpenInNewTab} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
         <ExternalLink className="w-3.5 h-3.5 text-text-muted shrink-0" />
         <span>새 탭에서 열기</span>
@@ -447,7 +463,6 @@ function FileTreeContextMenu({
 
       <div className="h-px bg-border mx-2 my-1" />
 
-      {/* File actions */}
       <button onClick={handleDuplicate} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
         <Copy className="w-3.5 h-3.5 text-text-muted shrink-0" />
         <span>복사본 생성</span>
@@ -459,7 +474,6 @@ function FileTreeContextMenu({
 
       <div className="h-px bg-border mx-2 my-1" />
 
-      {/* Edit actions */}
       <button onClick={handleRename} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
         <Edit3 className="w-3.5 h-3.5 text-text-muted shrink-0" />
         <span>이름변경</span>
@@ -470,185 +484,6 @@ function FileTreeContextMenu({
       </button>
     </div>,
     document.body,
-  )
-}
-
-/* ── ChapterTreeNode (for the bottom chapter section) ── */
-
-function ChapterTreeNode({
-  item,
-  depth,
-  selectedId,
-  onSelect,
-  onDelete,
-  onToggle,
-}: {
-  item: ChapterTreeItem
-  depth: number
-  selectedId: string | null
-  onSelect: (id: string) => void
-  onDelete: (id: string) => void
-  onToggle: (id: string) => void
-}) {
-  const isVolume = item.type === 'volume'
-  const isSelected = item.id === selectedId
-
-  return (
-    <div>
-      <div
-        className={cn(
-          'group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors text-xs',
-          isSelected ? 'bg-bg-hover/60 text-text-primary' : 'hover:bg-bg-hover text-text-primary',
-        )}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        onClick={() => { if (isVolume) onToggle(item.id); onSelect(item.id) }}
-      >
-        {isVolume ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onToggle(item.id) }}
-            className="shrink-0 text-text-muted hover:text-text-primary"
-          >
-            {item.isExpanded
-              ? <ChevronDown className="w-3.5 h-3.5" />
-              : <ChevronRight className="w-3.5 h-3.5" />}
-          </button>
-        ) : (
-          <span className="w-3.5 h-3.5 shrink-0" />
-        )}
-
-        {isVolume
-          ? <BookOpen className="w-3.5 h-3.5 shrink-0 text-accent/70" />
-          : <FileText className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-        }
-
-        <span className={cn('truncate flex-1', isVolume && 'font-semibold')}>{item.title}</span>
-
-        {!isVolume && item.wordCount > 0 && (
-          <span className="text-[10px] text-text-muted shrink-0 mr-1">
-            {item.wordCount.toLocaleString()}
-          </span>
-        )}
-
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(item.id) }}
-          className="shrink-0 opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 transition"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
-      </div>
-
-      {isVolume && item.isExpanded && item.children.length > 0 && (
-        <div>
-          {item.children.map(child => (
-            <ChapterTreeNode
-              key={child.id}
-              item={child}
-              depth={depth + 1}
-              selectedId={selectedId}
-              onSelect={onSelect}
-              onDelete={onDelete}
-              onToggle={onToggle}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ── ChapterSection ── */
-
-function ChapterSection() {
-  const [sectionExpanded, setSectionExpanded] = useState(true)
-
-  const currentProject = useProjectStore(s => s.currentProject)
-  const currentChapter = useProjectStore(s => s.currentChapter)
-  const chapters = useProjectStore(s => s.chapters)
-  const getChapterTree = useProjectStore(s => s.getChapterTree)
-  const createChapter = useProjectStore(s => s.createChapter)
-  const selectChapter = useProjectStore(s => s.selectChapter)
-  const deleteChapter = useProjectStore(s => s.deleteChapter)
-  const toggleExpanded = useProjectStore(s => s.toggleExpanded)
-
-  const openTabs = useEditorStore(s => s.openTabs)
-  const activatePanel = useEditorStore(s => s.activatePanel)
-  const toggleTab = useEditorStore(s => s.toggleTab)
-
-  const tree = getChapterTree()
-
-  const handleSelectChapter = useCallback((id: string) => {
-    selectChapter(id)
-    if (openTabs.includes('editor')) activatePanel('editor')
-    else toggleTab('editor')
-  }, [selectChapter, openTabs, activatePanel, toggleTab])
-
-  const handleAddVolume = useCallback(async () => {
-    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
-    await createChapter(
-      `볼륨 ${chapters.filter(c => c.type === 'volume').length + 1}`,
-      null,
-      'volume',
-    )
-  }, [currentProject, createChapter, chapters])
-
-  const handleAddChapter = useCallback(async () => {
-    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
-    const ch = await createChapter(`챕터 ${chapters.length + 1}`)
-    selectChapter(ch.id)
-  }, [currentProject, createChapter, chapters, selectChapter])
-
-  return (
-    <div className="border-t border-border shrink-0 flex flex-col" style={{ maxHeight: '45%' }}>
-      {/* Section header */}
-      <div className="flex items-center gap-0.5 px-1.5 py-1 shrink-0">
-        <button
-          onClick={() => setSectionExpanded(!sectionExpanded)}
-          className="flex items-center gap-1 flex-1 min-w-0 text-[10px] font-medium tracking-wide uppercase text-text-muted hover:text-text-primary transition"
-        >
-          {sectionExpanded
-            ? <ChevronDown className="w-3 h-3 shrink-0" />
-            : <ChevronRight className="w-3 h-3 shrink-0" />}
-          <span>볼륨/챕터</span>
-        </button>
-        <button
-          onClick={handleAddVolume}
-          className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
-          title="새 볼륨"
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={handleAddChapter}
-          className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
-          title="새 챕터"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      {/* Chapter tree */}
-      {sectionExpanded && (
-        <div className="overflow-y-auto flex-1 py-1">
-          {tree.length === 0 ? (
-            <div className="px-3 py-3 text-center text-text-muted text-xs">
-              챕터가 없습니다.
-            </div>
-          ) : (
-            tree.map(item => (
-              <ChapterTreeNode
-                key={item.id}
-                item={item}
-                depth={0}
-                selectedId={currentChapter?.id ?? null}
-                onSelect={handleSelectChapter}
-                onDelete={deleteChapter}
-                onToggle={toggleExpanded}
-              />
-            ))
-          )}
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -674,11 +509,9 @@ export function OpenFilesPanel() {
   const currentProject = useProjectStore(s => s.currentProject)
   const selectChapter = useProjectStore(s => s.selectChapter)
 
-  // Context menu state
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null)
 
-  // Sync file tree whenever tabs change
   useEffect(() => {
     syncFileTreeWithTabs()
   }, [canvasTabs.length, editorTabs.length])
@@ -717,7 +550,28 @@ export function OpenFilesPanel() {
     })
   }
 
-  // Drop on empty area → move to root
+  const handleNewVolume = async () => {
+    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
+    const volumeCount = chapters.filter(c => c.type === 'volume').length
+    const name = `볼륨 ${volumeCount + 1}`
+    const vol = await createChapter(name, null, 'volume')
+    addFileTreeNode({
+      type: 'volume',
+      name,
+      parentId: null,
+      targetId: vol.id,
+      children: [],
+      isExpanded: true,
+    })
+  }
+
+  const handleNewChapter = async () => {
+    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
+    const chapterCount = chapters.filter(c => c.type === 'chapter').length
+    const ch = await createChapter(`챕터 ${chapterCount + 1}`)
+    selectChapter(ch.id)
+  }
+
   const handleRootDrop = (e: React.DragEvent) => {
     e.preventDefault()
     const draggedId = e.dataTransfer.getData('application/x-filetree-node')
@@ -726,22 +580,14 @@ export function OpenFilesPanel() {
     }
   }
 
-  const handleContextMenuClose = useCallback(() => {
-    setContextMenu(null)
-  }, [])
-
-  const handleContextMenuRename = useCallback((nodeId: string) => {
-    setRenamingNodeId(nodeId)
-  }, [])
-
-  const handleRenamingDone = useCallback(() => {
-    setRenamingNodeId(null)
-  }, [])
+  const handleContextMenuClose = useCallback(() => setContextMenu(null), [])
+  const handleContextMenuRename = useCallback((nodeId: string) => setRenamingNodeId(nodeId), [])
+  const handleRenamingDone = useCallback(() => setRenamingNodeId(null), [])
 
   return (
     <div className="flex flex-col h-full bg-bg-primary">
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-1.5 py-1.5 shrink-0">
+      <div className="flex items-center gap-0.5 px-1.5 py-1.5 shrink-0 flex-wrap">
         <button onClick={handleNewStoryflow} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 스토리플로우">
           <LayoutGrid className="w-3.5 h-3.5" />
         </button>
@@ -751,14 +597,18 @@ export function OpenFilesPanel() {
         <button onClick={handleNewFolder} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 폴더">
           <FolderPlus className="w-3.5 h-3.5" />
         </button>
+        <button onClick={handleNewVolume} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 볼륨">
+          <BookOpen className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={handleNewChapter} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 챕터">
+          <FileText className="w-3.5 h-3.5" />
+        </button>
 
         <div className="w-px h-4 bg-border mx-0.5" />
 
         <button
           onClick={() => setFileTreeSortBy(fileTreeSortBy === 'name' ? 'date' : 'name')}
-          className={cn(
-            'p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition',
-          )}
+          className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
           title={fileTreeSortBy === 'name' ? '날짜순 정렬' : '이름순 정렬'}
         >
           {fileTreeSortBy === 'name'
@@ -773,9 +623,9 @@ export function OpenFilesPanel() {
         </button>
       </div>
 
-      {/* File Tree */}
+      {/* Tree */}
       <div
-        className="flex-1 overflow-y-auto py-1 min-h-0"
+        className="flex-1 overflow-y-auto py-1"
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleRootDrop}
       >
@@ -801,9 +651,6 @@ export function OpenFilesPanel() {
           ))
         )}
       </div>
-
-      {/* Volume/Chapter section */}
-      <ChapterSection />
 
       {/* Context menu */}
       {contextMenu && (
