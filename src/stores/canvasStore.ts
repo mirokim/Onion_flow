@@ -5,9 +5,11 @@ import { generateId } from '@/lib/utils'
 import { nowUTC } from '@/lib/dateUtils'
 
 export interface NodeOutput {
-  status: 'idle' | 'queued' | 'running' | 'completed' | 'error'
+  status: 'idle' | 'queued' | 'running' | 'completed' | 'error' | 'waiting'
   content: string
   error?: string
+  /** Brainstorming node: AI-generated choices waiting for user selection */
+  choices?: string[]
 }
 
 interface CanvasState {

@@ -60,8 +60,9 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
         data.nodeType === 'character' ? 'max-w-[320px]' : 'max-w-[280px]',
         'bg-bg-surface text-text-primary',
         selected ? 'border-accent shadow-accent/20' : 'border-border',
-        nodeOutput?.status === 'running' && 'border-yellow-500/60',
-        nodeOutput?.status === 'error' && 'border-red-500/60',
+        nodeOutput?.status === 'running'  && 'border-yellow-500/60',
+        nodeOutput?.status === 'waiting'  && 'border-blue-500/60',
+        nodeOutput?.status === 'error'    && 'border-red-500/60',
         nodeOutput?.status === 'completed' && 'border-green-500/40',
       )}
     >
@@ -79,6 +80,9 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
         )}
         {nodeOutput?.status === 'completed' && (
           <div className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+        )}
+        {nodeOutput?.status === 'waiting' && (
+          <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
         )}
         {nodeOutput?.status === 'error' && (
           <div className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
@@ -102,8 +106,9 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
         <NodeBodyRenderer nodeId={data.nodeId || id} data={data} selected={!!selected} />
       </div>
 
-      {/* Execution Output (storyteller hides completed text — result goes to editor) */}
-      {nodeOutput && nodeOutput.status !== 'idle' && nodeOutput.status !== 'queued' && (
+      {/* Execution Output (storyteller hides completed text — result goes to editor)
+          'waiting' status: choices rendered inside body, skip this section */}
+      {nodeOutput && nodeOutput.status !== 'idle' && nodeOutput.status !== 'queued' && nodeOutput.status !== 'waiting' && (
         <div className="border-t border-border">
           {nodeOutput.status === 'running' && (
             <div className="px-3 py-2 text-[10px] text-yellow-500 flex items-center gap-1.5">

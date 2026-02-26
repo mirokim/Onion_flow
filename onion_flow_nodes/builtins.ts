@@ -15,6 +15,8 @@ import './nodes/directionNodes'
 import './nodes/processingNodes'
 // ── Creative / special nodes ──────────────────────────────────────────────────
 import './nodes/creativeNodes'
+// ── Brainstorming node ────────────────────────────────────────────────────────
+import './nodes/brainstormingNode'
 // ── Detector nodes ────────────────────────────────────────────────────────────
 import './nodes/detectorNodes'
 // ── Special (analysis) nodes ─────────────────────────────────────────────────

@@ -89,6 +89,7 @@ export type CanvasNodeType =
   | 'save_content' | 'preview_content'
   | 'what_if' | 'show_dont_tell' | 'tikitaka'
   | 'cliffhanger' | 'virtual_reader'
+  | 'brainstorming'
   | 'emotion_tracker' | 'foreshadow_detector' | 'conflict_defense'
   | 'group'
   // Special nodes
