@@ -579,36 +579,129 @@ function WikiGroupSection({
   )
 }
 
-/* ── WikiListView ── */
+/* ── VolumeGroup ── */
+
+type ChapterItem = { id: string; title: string }
+
+function VolumeGroup({
+  volume,
+  chapters,
+  onOpenChapter,
+}: {
+  volume: ChapterItem
+  chapters: ChapterItem[]
+  onOpenChapter: (ch: ChapterItem) => void
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  return (
+    <div>
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="flex items-center gap-1.5 w-full px-2 py-1 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
+      >
+        {collapsed
+          ? <ChevronRight className="w-3 h-3 shrink-0" />
+          : <ChevronDown className="w-3 h-3 shrink-0" />}
+        <BookOpen className="w-3 h-3 shrink-0 text-accent/70" />
+        <span>{volume.title || '볼륨'}</span>
+        <span className="ml-auto opacity-60">{chapters.length}</span>
+      </button>
+      {!collapsed && chapters.map(ch => (
+        <div
+          key={ch.id}
+          onClick={() => onOpenChapter(ch)}
+          className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition"
+          style={{ paddingLeft: '28px' }}
+        >
+          <FileText className="w-3 h-3 shrink-0 text-text-muted" />
+          <span className="truncate">{ch.title || '제목 없음'}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── WikiListView (unified: documents + wiki entries) ── */
 
 function WikiListView() {
   const entries = useWikiStore(s => s.entries)
+  const allChapters = useProjectStore(s => s.chapters)
   const [search, setSearch] = useState('')
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return entries
-    const q = search.toLowerCase()
-    return entries.filter(e => (e.title ?? '').toLowerCase().includes(q))
-  }, [entries, search])
+  const q = search.trim().toLowerCase()
 
+  // ── documents ──
+  const volumes = useMemo(
+    () => allChapters.filter(c => c.type === 'volume'),
+    [allChapters],
+  )
+  const leafChapters = useMemo(
+    () => allChapters.filter(c => c.type === 'chapter'),
+    [allChapters],
+  )
+
+  const filteredLeaf = useMemo(
+    () => q ? leafChapters.filter(c => c.title.toLowerCase().includes(q)) : leafChapters,
+    [leafChapters, q],
+  )
+
+  // Group leaf chapters by their volume parentId
+  const volumeChildMap = useMemo(() => {
+    const map = new Map<string | null, ChapterItem[]>()
+    const volumeIds = new Set(volumes.map(v => v.id))
+    for (const ch of filteredLeaf) {
+      const key = ch.parentId && volumeIds.has(ch.parentId) ? ch.parentId : null
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push({ id: ch.id, title: ch.title })
+    }
+    return map
+  }, [filteredLeaf, volumes])
+
+  // Volumes to show: those with matching children, or whose own title matches
+  const displayVolumes = useMemo(
+    () => volumes.filter(v =>
+      (volumeChildMap.get(v.id)?.length ?? 0) > 0
+      || (q && v.title.toLowerCase().includes(q)),
+    ),
+    [volumes, volumeChildMap, q],
+  )
+  const orphanChapters: ChapterItem[] = volumeChildMap.get(null) ?? []
+
+  const hasDocuments = displayVolumes.length > 0 || orphanChapters.length > 0
+
+  // ── wiki ──
+  const filteredEntries = useMemo(
+    () => q ? entries.filter(e => (e.title ?? '').toLowerCase().includes(q)) : entries,
+    [entries, q],
+  )
   const grouped = useMemo(
     () => WIKI_CATEGORY_GROUPS
       .map(g => ({
         id: g.id,
         labelKo: g.labelKo,
         icon: g.icon,
-        entries: filtered.filter(e => g.categories.some(c => c.key === e.category)),
+        entries: filteredEntries.filter(e => g.categories.some(c => c.key === e.category)),
       }))
       .filter(g => g.entries.length > 0),
-    [filtered],
+    [filteredEntries],
   )
 
-  const handleOpenEntry = useCallback((entry: WikiEntry) => {
-    useEditorStore.getState().openWikiTab(entry.id, entry.title || '새 항목')
-    const { openTabs, toggleTab, activatePanel } = useEditorStore.getState()
-    if (!openTabs.includes('editor')) toggleTab('editor')
-    else activatePanel('editor')
+  const handleOpenChapter = useCallback((ch: ChapterItem) => {
+    const s = useEditorStore.getState()
+    s.openEditorTab(ch.id, ch.title || '제목 없음')
+    if (!s.openTabs.includes('editor')) s.toggleTab('editor')
+    else s.activatePanel('editor')
   }, [])
+
+  const handleOpenEntry = useCallback((entry: WikiEntry) => {
+    const s = useEditorStore.getState()
+    s.openWikiTab(entry.id, entry.title || '새 항목')
+    if (!s.openTabs.includes('editor')) s.toggleTab('editor')
+    else s.activatePanel('editor')
+  }, [])
+
+  const isEmpty = allChapters.length === 0 && entries.length === 0
+  const noResults = !!q && !hasDocuments && grouped.length === 0
 
   return (
     <div className="flex flex-col h-full">
@@ -617,23 +710,58 @@ function WikiListView() {
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="위키 검색..."
+          placeholder="검색..."
           className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50"
         />
       </div>
 
-      {/* Entry list */}
       <div className="flex-1 overflow-y-auto">
-        {entries.length === 0 ? (
-          <div className="px-3 py-6 text-center text-text-muted text-xs">
-            위키 항목이 없습니다
-          </div>
-        ) : grouped.length === 0 ? (
+        {isEmpty ? (
+          <div className="px-3 py-6 text-center text-text-muted text-xs">항목이 없습니다</div>
+        ) : noResults ? (
           <div className="px-3 py-4 text-center text-text-muted text-xs">검색 결과 없음</div>
         ) : (
-          grouped.map(g => (
-            <WikiGroupSection key={g.id} group={g} onOpenEntry={handleOpenEntry} />
-          ))
+          <>
+            {/* Documents section */}
+            {hasDocuments && (
+              <>
+                <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                  문서
+                </div>
+                {displayVolumes.map(vol => (
+                  <VolumeGroup
+                    key={vol.id}
+                    volume={{ id: vol.id, title: vol.title }}
+                    chapters={volumeChildMap.get(vol.id) ?? []}
+                    onOpenChapter={handleOpenChapter}
+                  />
+                ))}
+                {orphanChapters.map(ch => (
+                  <div
+                    key={ch.id}
+                    onClick={() => handleOpenChapter(ch)}
+                    className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition"
+                  >
+                    <FileText className="w-3 h-3 shrink-0 text-text-muted" />
+                    <span className="truncate">{ch.title || '제목 없음'}</span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Wiki section */}
+            {grouped.length > 0 && (
+              <>
+                {hasDocuments && <div className="h-px bg-border mx-2 my-1" />}
+                <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                  위키
+                </div>
+                {grouped.map(g => (
+                  <WikiGroupSection key={g.id} group={g} onOpenEntry={handleOpenEntry} />
+                ))}
+              </>
+            )}
+          </>
         )}
       </div>
     </div>

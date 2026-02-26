@@ -45,9 +45,13 @@ interface PanelTabBarProps {
   onRenameTab?: (tabId: string) => void
   /** Duplicate a tab */
   onDuplicateTab?: (tabId: string) => void
+  /** Canvas-only: current canvas view mode shown in tab context menu */
+  canvasViewMode?: 'graph' | 'document'
+  /** Canvas-only: called when user picks a view mode in tab context menu */
+  onCanvasViewModeChange?: (mode: 'graph' | 'document') => void
 }
 
-export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canClose = true, onReorder, onTogglePin, panelDragHandlers, actions, hideGripHandle, panelType, onRenameTab, onDuplicateTab }: PanelTabBarProps) {
+export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canClose = true, onReorder, onTogglePin, panelDragHandlers, actions, hideGripHandle, panelType, onRenameTab, onDuplicateTab, canvasViewMode, onCanvasViewModeChange }: PanelTabBarProps) {
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const dragItem = useRef<string | null>(null)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; tabId: string } | null>(null)
@@ -203,6 +207,8 @@ export function PanelTabBar({ tabs, activeTabId, onSelect, onClose, onAdd, canCl
           onRenameTab={canRename ? () => onRenameTab?.(ctxMenu.tabId) : undefined}
           onDuplicateTab={canDuplicate ? () => onDuplicateTab?.(ctxMenu.tabId) : undefined}
           onCloseTab={() => onClose(ctxMenu.tabId)}
+          canvasViewMode={panelType === 'canvas' ? canvasViewMode : undefined}
+          onCanvasViewModeChange={panelType === 'canvas' ? onCanvasViewModeChange : undefined}
         />
       )}
     </div>

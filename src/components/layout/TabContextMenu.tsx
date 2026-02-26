@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Pin, Pencil, CopyPlus, X } from 'lucide-react'
+import { Pin, Pencil, CopyPlus, X, LayoutGrid, AlignLeft } from 'lucide-react'
 
 interface TabContextMenuProps {
   position: { x: number; y: number }
@@ -17,6 +17,10 @@ interface TabContextMenuProps {
   onRenameTab?: () => void
   onDuplicateTab?: () => void
   onCloseTab: () => void
+  /** Canvas-only: current view mode */
+  canvasViewMode?: 'graph' | 'document'
+  /** Canvas-only: called when user selects a view mode */
+  onCanvasViewModeChange?: (mode: 'graph' | 'document') => void
 }
 
 export function TabContextMenu({
@@ -30,6 +34,8 @@ export function TabContextMenu({
   onRenameTab,
   onDuplicateTab,
   onCloseTab,
+  canvasViewMode,
+  onCanvasViewModeChange,
 }: TabContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -48,7 +54,7 @@ export function TabContextMenu({
     }
   }, [onClose])
 
-  const menuW = 176, menuH = 160
+  const menuW = 176, menuH = canvasViewMode !== undefined ? 220 : 160
   const style: React.CSSProperties = {
     position: 'fixed',
     zIndex: 9999,
@@ -95,6 +101,37 @@ export function TabContextMenu({
             <CopyPlus className="w-3.5 h-3.5" />
             탭 복제
           </button>
+        )}
+
+        {/* Canvas view mode */}
+        {canvasViewMode !== undefined && onCanvasViewModeChange && (
+          <>
+            <div className="h-px bg-border mx-2 my-0.5" />
+            <button
+              onClick={() => { onCanvasViewModeChange('graph'); onClose() }}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition ${
+                canvasViewMode === 'graph'
+                  ? 'text-accent font-medium bg-accent/5'
+                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              그래프 뷰
+              {canvasViewMode === 'graph' && <span className="ml-auto text-[10px] opacity-60">●</span>}
+            </button>
+            <button
+              onClick={() => { onCanvasViewModeChange('document'); onClose() }}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition ${
+                canvasViewMode === 'document'
+                  ? 'text-accent font-medium bg-accent/5'
+                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+              }`}
+            >
+              <AlignLeft className="w-3.5 h-3.5" />
+              문서 뷰
+              {canvasViewMode === 'document' && <span className="ml-auto text-[10px] opacity-60">●</span>}
+            </button>
+          </>
         )}
 
         <div className="h-px bg-border mx-2 my-0.5" />
