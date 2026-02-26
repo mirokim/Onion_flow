@@ -13,8 +13,7 @@ import { useWikiStore } from '@/stores/wikiStore'
 import type { WikiEntry } from '@/types'
 import { WIKI_CATEGORIES, WIKI_CATEGORY_GROUPS } from '@/components/wiki/WikiCategoryList'
 import {
-  Folder, FolderOpen, FolderPlus, LayoutGrid, FileText, Plus,
-  ArrowDownAZ, ArrowDownWideNarrow, ChevronsUpDown, ChevronsDownUp,
+  Folder, FolderOpen, LayoutGrid, FileText, Plus,
   ChevronRight, ChevronDown, Trash2,
   ExternalLink, AppWindow, Copy, Download, Edit3, BookOpen,
 } from 'lucide-react'
@@ -530,6 +529,73 @@ function FileTreeContextMenu({
   )
 }
 
+/* ── CreateDropdown ── */
+
+function CreateDropdown() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const currentProject = useProjectStore(s => s.currentProject)
+  const openCanvasTab = useEditorStore(s => s.openCanvasTab)
+
+  useEffect(() => {
+    if (!open) return
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  const handleNewCanvas = () => {
+    openCanvasTab(null, '새 캔버스')
+    setOpen(false)
+  }
+
+  const handleNewWikiItem = async () => {
+    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); setOpen(false); return }
+    const entry = await useWikiStore.getState().createEntry(currentProject.id, 'custom', '새 위키항목')
+    const s = useEditorStore.getState()
+    s.openWikiTab(entry.id, entry.title || '새 위키항목')
+    if (!s.openTabs.includes('editor')) s.toggleTab('editor')
+    else s.activatePanel('editor')
+    setOpen(false)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'flex items-center gap-0.5 px-2 py-1 rounded text-[11px] transition',
+          open ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
+        )}
+        title="새 항목 만들기"
+      >
+        <Plus className="w-3.5 h-3.5" />
+        <ChevronDown className="w-2.5 h-2.5" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full mt-0.5 bg-bg-surface border border-border rounded-lg shadow-xl py-1 w-36 z-50 text-xs">
+          <button
+            onClick={handleNewCanvas}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-text-primary hover:bg-bg-hover transition text-left"
+          >
+            <LayoutGrid className="w-3.5 h-3.5 text-text-muted shrink-0" />
+            새 캔버스
+          </button>
+          <button
+            onClick={handleNewWikiItem}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-text-primary hover:bg-bg-hover transition text-left"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-purple-400/80 shrink-0" />
+            새 위키항목
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── WikiGroupSection ── */
 
 const CATEGORY_LABEL_MAP = Object.fromEntries(
@@ -587,24 +653,38 @@ function VolumeGroup({
   volume,
   chapters,
   onOpenChapter,
+  onAddChapter,
 }: {
   volume: ChapterItem
   chapters: ChapterItem[]
   onOpenChapter: (ch: ChapterItem) => void
+  onAddChapter?: () => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
   return (
     <div>
       <button
         onClick={() => setCollapsed(c => !c)}
-        className="flex items-center gap-1.5 w-full px-2 py-1 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
+        className="group flex items-center gap-1.5 w-full px-2 py-1 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
       >
         {collapsed
           ? <ChevronRight className="w-3 h-3 shrink-0" />
           : <ChevronDown className="w-3 h-3 shrink-0" />}
         <BookOpen className="w-3 h-3 shrink-0 text-accent/70" />
-        <span>{volume.title || '볼륨'}</span>
-        <span className="ml-auto opacity-60">{chapters.length}</span>
+        <span className="flex-1 text-left truncate">{volume.title || '볼륨'}</span>
+        <span className="flex items-center gap-1 shrink-0">
+          {onAddChapter && (
+            <span
+              role="button"
+              onClick={(e) => { e.stopPropagation(); onAddChapter() }}
+              className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-4 h-4 rounded hover:bg-bg-hover text-text-muted hover:text-text-primary transition"
+              title="새 챕터"
+            >
+              <Plus className="w-2.5 h-2.5" />
+            </span>
+          )}
+          <span className="opacity-60">{chapters.length}</span>
+        </span>
       </button>
       {!collapsed && chapters.map(ch => (
         <div
@@ -621,31 +701,110 @@ function VolumeGroup({
   )
 }
 
-/* ── WikiListView (unified: documents + wiki entries) ── */
+/* ── BonbunSection ── */
+
+function BonbunSection({
+  volumes,
+  volumeChildMap,
+  orphanChapters,
+  onOpenChapter,
+  onAddVolume,
+  onAddOrphanChapter,
+  onAddChapterToVolume,
+}: {
+  volumes: ChapterItem[]
+  volumeChildMap: Map<string | null, ChapterItem[]>
+  orphanChapters: ChapterItem[]
+  onOpenChapter: (ch: ChapterItem) => void
+  onAddVolume: () => void
+  onAddOrphanChapter: () => void
+  onAddChapterToVolume: (volumeId: string) => void
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  const total = volumes.reduce((acc, v) => acc + (volumeChildMap.get(v.id)?.length ?? 0), 0)
+    + orphanChapters.length
+
+  return (
+    <div>
+      {/* Section header */}
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="group flex items-center gap-1.5 w-full px-2 py-1 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
+      >
+        {collapsed
+          ? <ChevronRight className="w-3 h-3 shrink-0" />
+          : <ChevronDown className="w-3 h-3 shrink-0" />}
+        <FileText className="w-3 h-3 shrink-0" />
+        <span className="flex-1 text-left">본문</span>
+        <span className="opacity-60 mr-1">{total}</span>
+      </button>
+
+      {!collapsed && (
+        <>
+          {volumes.map(vol => (
+            <VolumeGroup
+              key={vol.id}
+              volume={vol}
+              chapters={volumeChildMap.get(vol.id) ?? []}
+              onOpenChapter={onOpenChapter}
+              onAddChapter={() => onAddChapterToVolume(vol.id)}
+            />
+          ))}
+          {orphanChapters.map(ch => (
+            <div
+              key={ch.id}
+              onClick={() => onOpenChapter(ch)}
+              className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition"
+              style={{ paddingLeft: '20px' }}
+            >
+              <FileText className="w-3 h-3 shrink-0 text-text-muted" />
+              <span className="truncate">{ch.title || '제목 없음'}</span>
+            </div>
+          ))}
+          {/* Inline creation */}
+          <div className="flex items-center gap-1 py-0.5" style={{ paddingLeft: '20px' }}>
+            <button
+              onClick={onAddOrphanChapter}
+              className="flex items-center gap-0.5 text-[10px] text-text-muted hover:text-text-primary px-1 py-0.5 rounded hover:bg-bg-hover transition"
+              title="새 챕터"
+            >
+              <Plus className="w-2.5 h-2.5" />챕터
+            </button>
+            <button
+              onClick={onAddVolume}
+              className="flex items-center gap-0.5 text-[10px] text-text-muted hover:text-text-primary px-1 py-0.5 rounded hover:bg-bg-hover transition"
+              title="새 볼륨"
+            >
+              <Plus className="w-2.5 h-2.5" />볼륨
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+/* ── WikiListView (통합: 본문 + 위키항목) ── */
 
 function WikiListView() {
   const entries = useWikiStore(s => s.entries)
   const allChapters = useProjectStore(s => s.chapters)
+  const createChapter = useProjectStore(s => s.createChapter)
+  const selectChapter = useProjectStore(s => s.selectChapter)
+  const currentProject = useProjectStore(s => s.currentProject)
   const [search, setSearch] = useState('')
 
   const q = search.trim().toLowerCase()
 
-  // ── documents ──
-  const volumes = useMemo(
-    () => allChapters.filter(c => c.type === 'volume'),
-    [allChapters],
-  )
-  const leafChapters = useMemo(
-    () => allChapters.filter(c => c.type === 'chapter'),
-    [allChapters],
-  )
+  // ── 본문 ──
+  const volumes = useMemo(() => allChapters.filter(c => c.type === 'volume'), [allChapters])
+  const leafChapters = useMemo(() => allChapters.filter(c => c.type === 'chapter'), [allChapters])
 
   const filteredLeaf = useMemo(
     () => q ? leafChapters.filter(c => c.title.toLowerCase().includes(q)) : leafChapters,
     [leafChapters, q],
   )
 
-  // Group leaf chapters by their volume parentId
   const volumeChildMap = useMemo(() => {
     const map = new Map<string | null, ChapterItem[]>()
     const volumeIds = new Set(volumes.map(v => v.id))
@@ -657,19 +816,22 @@ function WikiListView() {
     return map
   }, [filteredLeaf, volumes])
 
-  // Volumes to show: those with matching children, or whose own title matches
-  const displayVolumes = useMemo(
-    () => volumes.filter(v =>
-      (volumeChildMap.get(v.id)?.length ?? 0) > 0
-      || (q && v.title.toLowerCase().includes(q)),
-    ),
+  // When searching: only show volumes with matching content or title
+  // When not searching: show all volumes (including empty ones)
+  const bonbunVolumes = useMemo(
+    () => q
+      ? volumes.filter(v =>
+          (volumeChildMap.get(v.id)?.length ?? 0) > 0
+          || v.title.toLowerCase().includes(q),
+        ).map(v => ({ id: v.id, title: v.title }))
+      : volumes.map(v => ({ id: v.id, title: v.title })),
     [volumes, volumeChildMap, q],
   )
   const orphanChapters: ChapterItem[] = volumeChildMap.get(null) ?? []
 
-  const hasDocuments = displayVolumes.length > 0 || orphanChapters.length > 0
+  const showBonbun = !q || bonbunVolumes.length > 0 || orphanChapters.length > 0
 
-  // ── wiki ──
+  // ── 위키 ──
   const filteredEntries = useMemo(
     () => q ? entries.filter(e => (e.title ?? '').toLowerCase().includes(q)) : entries,
     [entries, q],
@@ -686,6 +848,13 @@ function WikiListView() {
     [filteredEntries],
   )
 
+  // ── helpers ──
+  const openEditorPanel = useCallback(() => {
+    const s = useEditorStore.getState()
+    if (!s.openTabs.includes('editor')) s.toggleTab('editor')
+    else s.activatePanel('editor')
+  }, [])
+
   const handleOpenChapter = useCallback((ch: ChapterItem) => {
     const s = useEditorStore.getState()
     s.openEditorTab(ch.id, ch.title || '제목 없음')
@@ -700,8 +869,31 @@ function WikiListView() {
     else s.activatePanel('editor')
   }, [])
 
-  const isEmpty = allChapters.length === 0 && entries.length === 0
-  const noResults = !!q && !hasDocuments && grouped.length === 0
+  const handleAddVolume = useCallback(async () => {
+    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
+    const count = useProjectStore.getState().chapters.filter(c => c.type === 'volume').length
+    await createChapter(`볼륨 ${count + 1}`, null, 'volume')
+  }, [currentProject, createChapter])
+
+  const handleAddOrphanChapter = useCallback(async () => {
+    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
+    const count = useProjectStore.getState().chapters.filter(c => c.type === 'chapter').length
+    const ch = await createChapter(`챕터 ${count + 1}`)
+    selectChapter(ch.id)
+    openEditorPanel()
+  }, [currentProject, createChapter, selectChapter, openEditorPanel])
+
+  const handleAddChapterToVolume = useCallback(async (volumeId: string) => {
+    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
+    const count = useProjectStore.getState().chapters.filter(
+      c => c.type === 'chapter' && c.parentId === volumeId,
+    ).length
+    const ch = await createChapter(`챕터 ${count + 1}`, volumeId)
+    selectChapter(ch.id)
+    openEditorPanel()
+  }, [currentProject, createChapter, selectChapter, openEditorPanel])
+
+  const noResults = !!q && !showBonbun && grouped.length === 0
 
   return (
     <div className="flex flex-col h-full">
@@ -716,51 +908,27 @@ function WikiListView() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {isEmpty ? (
-          <div className="px-3 py-6 text-center text-text-muted text-xs">항목이 없습니다</div>
-        ) : noResults ? (
+        {noResults ? (
           <div className="px-3 py-4 text-center text-text-muted text-xs">검색 결과 없음</div>
         ) : (
           <>
-            {/* Documents section */}
-            {hasDocuments && (
-              <>
-                <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-                  문서
-                </div>
-                {displayVolumes.map(vol => (
-                  <VolumeGroup
-                    key={vol.id}
-                    volume={{ id: vol.id, title: vol.title }}
-                    chapters={volumeChildMap.get(vol.id) ?? []}
-                    onOpenChapter={handleOpenChapter}
-                  />
-                ))}
-                {orphanChapters.map(ch => (
-                  <div
-                    key={ch.id}
-                    onClick={() => handleOpenChapter(ch)}
-                    className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition"
-                  >
-                    <FileText className="w-3 h-3 shrink-0 text-text-muted" />
-                    <span className="truncate">{ch.title || '제목 없음'}</span>
-                  </div>
-                ))}
-              </>
+            {/* 본문 category */}
+            {showBonbun && (
+              <BonbunSection
+                volumes={bonbunVolumes}
+                volumeChildMap={volumeChildMap}
+                orphanChapters={orphanChapters}
+                onOpenChapter={handleOpenChapter}
+                onAddVolume={handleAddVolume}
+                onAddOrphanChapter={handleAddOrphanChapter}
+                onAddChapterToVolume={handleAddChapterToVolume}
+              />
             )}
 
-            {/* Wiki section */}
-            {grouped.length > 0 && (
-              <>
-                {hasDocuments && <div className="h-px bg-border mx-2 my-1" />}
-                <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold text-text-muted uppercase tracking-wider">
-                  위키
-                </div>
-                {grouped.map(g => (
-                  <WikiGroupSection key={g.id} group={g} onOpenEntry={handleOpenEntry} />
-                ))}
-              </>
-            )}
+            {/* 위키 categories */}
+            {grouped.map(g => (
+              <WikiGroupSection key={g.id} group={g} onOpenEntry={handleOpenEntry} />
+            ))}
           </>
         )}
       </div>
@@ -773,201 +941,22 @@ function WikiListView() {
 export function OpenFilesPanel() {
   const canvasTabs = useEditorStore(s => s.canvasTabs)
   const editorTabs = useEditorStore(s => s.editorTabs)
-  const activeCanvasTabId = useEditorStore(s => s.activeCanvasTabId)
-  const activeEditorTabId = useEditorStore(s => s.activeEditorTabId)
-  const fileTreeRoots = useEditorStore(s => s.fileTreeRoots)
-  const fileTreeNodes = useEditorStore(s => s.fileTreeNodes)
-  const fileTreeSortBy = useEditorStore(s => s.fileTreeSortBy)
   const syncFileTreeWithTabs = useEditorStore(s => s.syncFileTreeWithTabs)
-  const addFileTreeNode = useEditorStore(s => s.addFileTreeNode)
-  const setFileTreeSortBy = useEditorStore(s => s.setFileTreeSortBy)
-  const expandAllFolders = useEditorStore(s => s.expandAllFolders)
-  const collapseAllFolders = useEditorStore(s => s.collapseAllFolders)
-  const openCanvasTab = useEditorStore(s => s.openCanvasTab)
 
-  const chapters = useProjectStore(s => s.chapters)
-  const createChapter = useProjectStore(s => s.createChapter)
-  const currentProject = useProjectStore(s => s.currentProject)
-  const selectChapter = useProjectStore(s => s.selectChapter)
-
-  const [panelViewMode, setPanelViewMode] = useState<'files' | 'wiki'>('files')
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
-  const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null)
-
+  // Keep file tree synced (wiki nodes depend on this)
   useEffect(() => {
     syncFileTreeWithTabs()
   }, [canvasTabs.length, editorTabs.length])
 
-  const openCanvasTabIds = useMemo(
-    () => new Set(canvasTabs.map(t => t.id)),
-    [canvasTabs],
-  )
-  const openEditorTargetIds = useMemo(
-    () => new Set(editorTabs.map(t => t.targetId)),
-    [editorTabs],
-  )
-
-  const sortedRoots = useMemo(
-    () => sortNodeIds(fileTreeRoots, fileTreeNodes, fileTreeSortBy),
-    [fileTreeRoots, fileTreeNodes, fileTreeSortBy],
-  )
-
-  const handleNewStoryflow = () => {
-    openCanvasTab(null, 'New Story Flow')
-  }
-
-  const handleNewDocument = async () => {
-    if (!currentProject) return
-    const ch = await createChapter(`새 문서 ${chapters.length + 1}`)
-    selectChapter(ch.id)
-  }
-
-  const handleNewFolder = () => {
-    addFileTreeNode({
-      type: 'folder',
-      name: '새 폴더',
-      parentId: null,
-      children: [],
-      isExpanded: true,
-    })
-  }
-
-  const handleNewVolume = async () => {
-    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
-    const volumeCount = chapters.filter(c => c.type === 'volume').length
-    const name = `볼륨 ${volumeCount + 1}`
-    const vol = await createChapter(name, null, 'volume')
-    addFileTreeNode({
-      type: 'volume',
-      name,
-      parentId: null,
-      targetId: vol.id,
-      children: [],
-      isExpanded: true,
-    })
-  }
-
-  const handleRootDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    const draggedId = e.dataTransfer.getData('application/x-filetree-node')
-    if (draggedId) {
-      useEditorStore.getState().moveFileTreeNode(draggedId, null)
-    }
-  }
-
-  const handleContextMenuClose = useCallback(() => setContextMenu(null), [])
-  const handleContextMenuRename = useCallback((nodeId: string) => setRenamingNodeId(nodeId), [])
-  const handleRenamingDone = useCallback(() => setRenamingNodeId(null), [])
-
   return (
     <div className="flex flex-col h-full bg-bg-primary">
-      {/* View mode toggle */}
-      <div className="flex items-center shrink-0 border-b border-border/50 bg-bg-secondary/40">
-        <button
-          onClick={() => setPanelViewMode('files')}
-          className={cn(
-            'flex items-center gap-1 flex-1 justify-center py-1 text-[11px] transition',
-            panelViewMode === 'files'
-              ? 'text-text-primary bg-bg-hover font-medium'
-              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
-          )}
-          title="파일 트리"
-        >
-          <FolderOpen className="w-3 h-3" />
-          <span>파일</span>
-        </button>
-        <div className="w-px h-4 bg-border" />
-        <button
-          onClick={() => setPanelViewMode('wiki')}
-          className={cn(
-            'flex items-center gap-1 flex-1 justify-center py-1 text-[11px] transition',
-            panelViewMode === 'wiki'
-              ? 'text-text-primary bg-bg-hover font-medium'
-              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
-          )}
-          title="위키 목록"
-        >
-          <BookOpen className="w-3 h-3" />
-          <span>위키</span>
-        </button>
+      {/* Toolbar: single + dropdown */}
+      <div className="flex items-center justify-end px-1.5 py-1 shrink-0 border-b border-border/40">
+        <CreateDropdown />
       </div>
 
-      {panelViewMode === 'wiki' ? (
-        <WikiListView />
-      ) : (
-        <>
-          {/* Toolbar */}
-          <div className="flex items-center justify-center gap-0.5 px-1.5 py-1.5 shrink-0 flex-wrap">
-            <button onClick={handleNewStoryflow} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 스토리플로우">
-              <LayoutGrid className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={handleNewDocument} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 본문">
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={handleNewFolder} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 폴더">
-              <FolderPlus className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={handleNewVolume} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 볼륨">
-              <BookOpen className="w-3.5 h-3.5" />
-            </button>
-            <div className="w-px h-4 bg-border mx-0.5" />
-
-            <button
-              onClick={() => setFileTreeSortBy(fileTreeSortBy === 'name' ? 'date' : 'name')}
-              className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
-              title={fileTreeSortBy === 'name' ? '날짜순 정렬' : '이름순 정렬'}
-            >
-              {fileTreeSortBy === 'name'
-                ? <ArrowDownAZ className="w-3.5 h-3.5" />
-                : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
-            </button>
-            <button onClick={expandAllFolders} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="모두 펼치기">
-              <ChevronsUpDown className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={collapseAllFolders} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="모두 접기">
-              <ChevronsDownUp className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Tree */}
-          <div
-            className="flex-1 overflow-y-auto py-1"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={handleRootDrop}
-          >
-            {sortedRoots.length === 0 ? (
-              <div className="px-3 py-4 text-center text-text-muted text-xs">
-                파일이 없습니다.
-              </div>
-            ) : (
-              sortedRoots.map(rootId => (
-                <FileTreeNodeComponent
-                  key={rootId}
-                  nodeId={rootId}
-                  depth={0}
-                  activeCanvasTabId={activeCanvasTabId}
-                  activeEditorTabId={activeEditorTabId}
-                  openCanvasTabIds={openCanvasTabIds}
-                  openEditorTargetIds={openEditorTargetIds}
-                  sortBy={fileTreeSortBy}
-                  onContextMenu={setContextMenu}
-                  renamingNodeId={renamingNodeId}
-                  onRenamingDone={handleRenamingDone}
-                />
-              ))
-            )}
-          </div>
-
-          {/* Context menu */}
-          {contextMenu && (
-            <FileTreeContextMenu
-              menu={contextMenu}
-              onClose={handleContextMenuClose}
-              onRename={handleContextMenuRename}
-            />
-          )}
-        </>
-      )}
+      {/* Integrated content view */}
+      <WikiListView />
     </div>
   )
 }

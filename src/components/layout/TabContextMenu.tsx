@@ -116,7 +116,7 @@ export function TabContextMenu({
               }`}
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              그래프 뷰
+              노드뷰
               {canvasViewMode === 'graph' && <span className="ml-auto text-[10px] opacity-60">●</span>}
             </button>
             <button
