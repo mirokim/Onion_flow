@@ -3,10 +3,36 @@
  */
 import { registerPlugin } from '../plugin'
 import { NODE_CATEGORY_COLORS } from '../types'
+import type { NodeBodyProps } from '../plugin'
 import { useCanvasStore } from '@/stores/canvasStore'
 import { useWikiStore } from '@/stores/wikiStore'
+import { useProjectStore } from '@/stores/projectStore'
+import { textToTipTapContent } from '@/ai/contentConverter'
+import { getTextFromContent } from '@/lib/utils'
 
 // ── save_content ──────────────────────────────────────────────────────────────
+
+function SaveContentNodeBody({ nodeId, data }: NodeBodyProps) {
+  const saveTarget = (data.saveTarget as 'wiki' | 'chapter') || 'wiki'
+
+  return (
+    <div className="mt-1.5">
+      <select
+        value={saveTarget}
+        onChange={(e) => {
+          e.stopPropagation()
+          useCanvasStore.getState().updateNodeData(nodeId, { saveTarget: e.target.value })
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="w-full bg-bg-primary border border-border rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none focus:border-accent cursor-pointer"
+      >
+        <option value="wiki">위키에 저장</option>
+        <option value="chapter">본문에 저장 (새 챕터)</option>
+      </select>
+    </div>
+  )
+}
 
 registerPlugin({
   definition: {
@@ -18,8 +44,9 @@ registerPlugin({
     color: NODE_CATEGORY_COLORS.output,
     inputs: [{ id: 'content', label: 'Content', type: 'target', position: 'left', acceptsTypes: ['TEXT'] }],
     outputs: [],
-    defaultData: { filename: 'content.md', label: 'Save Content' },
+    defaultData: { filename: 'content.md', saveTarget: 'wiki', label: 'Save Content' },
   },
+  bodyComponent: SaveContentNodeBody,
   isExecutable: true,
   execute: async (node, collectContext) => {
     const context = collectContext(node.id)
@@ -27,6 +54,8 @@ registerPlugin({
     const { nodes } = useCanvasStore.getState()
     const projectId = node.projectId || nodes[0]?.projectId
     if (!projectId) return '프로젝트 ID를 찾을 수 없습니다.'
+
+    const saveTarget = (node.data.saveTarget as string) || 'wiki'
 
     // Collect character names from upstream nodes for tags
     const wikiEntries = useWikiStore.getState().entries
@@ -53,6 +82,18 @@ registerPlugin({
     const title = `Content - ${new Date().toLocaleString('ko-KR')}`
     const tags = [dateTag, ...characterTags]
 
+    if (saveTarget === 'chapter') {
+      // Save as new chapter
+      const chapter = await useProjectStore.getState().createChapter(title)
+      const jsonContent = textToTipTapContent(context)
+      const plainText = getTextFromContent(jsonContent)
+      const wordCount = plainText.replace(/\s/g, '').length
+      await useProjectStore.getState().updateChapterContent(chapter.id, jsonContent)
+      await useProjectStore.getState().updateChapter(chapter.id, { wordCount })
+      return `본문 챕터 "${title}" 생성 완료 (${wordCount}자)\n\n---\n\n${context}`
+    }
+
+    // Default: save to wiki
     const wikiStore = useWikiStore.getState()
     const entry = await wikiStore.createEntry(projectId, 'story', title)
     await wikiStore.updateEntry(entry.id, { content: context, tags })

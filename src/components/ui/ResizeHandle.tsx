@@ -59,7 +59,7 @@ export function ResizeHandle({ onResize, className }: ResizeHandleProps) {
       >
         <div className={cn(
           'w-px h-full transition-colors',
-          isDragging ? 'bg-accent/60' : 'bg-border/40 group-hover:bg-accent/50',
+          isDragging ? 'bg-accent/60' : 'bg-border group-hover:bg-accent/50',
         )} />
       </div>
     </div>

@@ -92,10 +92,14 @@ function NodeCanvasInner() {
               style: { width: n.width || 300, height: n.height || 200 },
               zIndex: -1, // Groups always behind regular nodes
             }
-          : {
-              ...(n.width ? { width: n.width } : {}),
-              ...(n.height ? { height: n.height } : {}),
+          // plot_context nodes: pass stored dimensions for resize support
+          : n.type === 'plot_context' && n.width && n.height
+          ? {
+              width: n.width,
+              height: n.height,
+              style: { width: n.width, height: n.height },
             }
+          : {}
         ),
         // If this node belongs to a group, set xyflow parentId — but only if the group actually exists
         ...(n.data.groupId && canvasNodes.some(g => g.id === n.data.groupId && g.type === 'group')
@@ -188,13 +192,20 @@ function NodeCanvasInner() {
           setMeasureGeneration(g => g + 1)
         }
 
-        // We only persist group dimensions when a resize operation *actually ends*
+        // We only persist dimensions when a resize operation *actually ends*
         // (not on initial measurement, which would trigger a feedback loop).
         if ((change as any).resizing) {
-          // User is actively resizing → track which node
+          // User is actively resizing → track which node + update in-memory for real-time feedback
           resizingNodeRef.current = change.id
+          useCanvasStore.setState(s => ({
+            nodes: s.nodes.map(n =>
+              n.id === change.id
+                ? { ...n, width: change.dimensions!.width, height: change.dimensions!.height }
+                : n,
+            ),
+          }))
         } else if (resizingNodeRef.current === change.id) {
-          // Resize just ended → persist final dimensions
+          // Resize just ended → persist final dimensions to DB
           resizingNodeRef.current = null
           updateNodeSize(change.id, change.dimensions.width, change.dimensions.height)
         }

@@ -5,7 +5,7 @@
  * Body rendering is dispatched to the appropriate plugin via NodeBodyRenderer.
  */
 import { memo, useMemo, Fragment } from 'react'
-import { Handle, Position, type NodeProps, useConnection } from '@xyflow/react'
+import { Handle, Position, NodeResizer, type NodeProps, useConnection } from '@xyflow/react'
 import { getNodeDefinition, HANDLE_DATA_TYPE_COLORS, type HandleDataType } from '../index'
 import { useCanvasStore } from '@/stores/canvasStore'
 import { cn } from '@/lib/utils'
@@ -24,6 +24,9 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
 
   const inputs = def.inputs
   const outputs = def.outputs
+
+  // Only plot_context in write mode is resizable
+  const isResizable = data.nodeType === 'plot_context' && data.mode === 'write'
 
   // Hide handle labels when the node has >2 total handles: the labels would overlap with
   // body content at multiple positions across the node height (character, storyteller,
@@ -57,8 +60,10 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
     <div
       className={cn(
         'canvas-node relative overflow-visible rounded-lg shadow-md border-2 min-w-[160px]',
+        isResizable ? '' :
         data.nodeType === 'lod'       ? 'max-w-[340px]' :
         data.nodeType === 'character' ? 'max-w-[320px]' : 'max-w-[280px]',
+        isResizable && 'w-full h-full flex flex-col',
         'bg-bg-surface text-text-primary',
         selected ? 'border-accent shadow-accent/20' : 'border-border',
         nodeOutput?.status === 'running'  && 'border-yellow-500/60',
@@ -67,6 +72,16 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
         nodeOutput?.status === 'completed' && 'border-green-500/40',
       )}
     >
+      {isResizable && (
+        <NodeResizer
+          color="transparent"
+          isVisible={!!selected}
+          minWidth={200}
+          minHeight={150}
+          handleStyle={{ width: 8, height: 8, background: 'transparent', border: 'none' }}
+          lineStyle={{ border: 'none' }}
+        />
+      )}
       {/* Header */}
       <div
         className="canvas-node-header px-3 py-1.5 rounded-t-md text-xs font-semibold text-white truncate flex items-center gap-1.5"
@@ -92,7 +107,7 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
       </div>
 
       {/* Body — dispatched to plugin via NodeBodyRenderer */}
-      <div className="canvas-node-body px-3 py-2 text-xs text-text-secondary">
+      <div className={cn("canvas-node-body px-3 py-2 text-xs text-text-secondary", isResizable && "flex-1 flex flex-col min-h-0")}>
         <div className="flex items-center justify-between gap-1">
           {!hideHandleLabels && inputs.length > 0 ? (
             <span className="text-[8px] text-text-muted/70 shrink-0">{inputs[0].label}</span>

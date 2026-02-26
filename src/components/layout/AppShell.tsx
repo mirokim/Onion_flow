@@ -232,7 +232,7 @@ export function AppShell() {
         {/* Fixed OpenFiles panel: toggleable via TopBar button, resizable */}
         {!focusMode && showOpenFilesPanel && (
           <>
-            <div className="flex flex-col shrink-0 border-r border-border bg-bg-primary" style={{ width: openFilesWidth }}>
+            <div className="flex flex-col shrink-0 bg-bg-primary" style={{ width: openFilesWidth }}>
               <OpenFilesPanel />
             </div>
             <ResizeHandle onResize={handleOpenFilesResize} />
@@ -265,7 +265,6 @@ export function AppShell() {
             'flex flex-col overflow-hidden bg-bg-primary h-full min-h-0 relative',
             !isFlexGroup && 'shrink-0',
             isFlexGroup && 'shrink min-w-0',
-            !isSolo && !isFirst && 'border-l border-border',
           )
 
           return (
