@@ -52,14 +52,13 @@ export function ResizeHandle({ onResize, className }: ResizeHandleProps) {
     <div
       onMouseDown={handleMouseDown}
       className={cn(
-        'w-1 shrink-0 cursor-col-resize group relative z-10',
-        'hover:bg-accent/30 active:bg-accent/50 transition-colors',
-        isDragging && 'bg-accent/50',
+        'w-3 shrink-0 cursor-col-resize group relative z-10 flex items-center justify-center',
         className,
       )}
     >
       <div className={cn(
-        'absolute top-0 bottom-0 w-3 -translate-x-1/2 left-1/2',
+        'absolute top-0 bottom-0 w-px transition-colors',
+        isDragging ? 'bg-accent/60' : 'bg-border/40 group-hover:bg-accent/50',
       )} />
     </div>
   )
