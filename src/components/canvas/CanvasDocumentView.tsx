@@ -5,7 +5,6 @@
  */
 import { useState, useRef, useEffect } from 'react'
 import { useCanvasStore } from '@/stores/canvasStore'
-import { useProjectStore } from '@/stores/projectStore'
 import type { CanvasNode } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -123,8 +122,13 @@ function NodeDocumentBlock({ node }: { node: CanvasNode }) {
 /* ── CanvasDocumentView ── */
 
 export function CanvasDocumentView() {
-  const getNodesAtCurrentDepth = useCanvasStore(s => s.getNodesAtCurrentDepth)
-  const nodes = getNodesAtCurrentDepth()
+  // Subscribe directly to nodes + depth path so the component re-renders on any change
+  const nodes = useCanvasStore(s => {
+    const parentId = s.currentDepthPath.length > 0
+      ? s.currentDepthPath[s.currentDepthPath.length - 1]
+      : null
+    return s.nodes.filter(n => n.parentCanvasId === parentId)
+  })
 
   // Sort by y position (top to bottom)
   const sortedNodes = [...nodes].sort((a, b) => a.position.y - b.position.y)

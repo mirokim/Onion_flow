@@ -12,7 +12,7 @@ import type { CanvasNode } from '@/types'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const mockGetUpstreamNodes = vi.fn<[], CanvasNode[]>(() => [])
+const mockGetUpstreamNodes = vi.fn(() => [] as CanvasNode[])
 const mockNodes: CanvasNode[] = []
 
 vi.mock('@/stores/canvasStore', () => ({
@@ -101,7 +101,7 @@ function makeNode(type: string, data: Record<string, any> = {}): CanvasNode {
     type,
     position: { x: 0, y: 0 },
     data: { nodeType: type, nodeId: `node-${type}-1`, ...data },
-  } as CanvasNode
+  } as unknown as CanvasNode
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

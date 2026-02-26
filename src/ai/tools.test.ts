@@ -15,7 +15,7 @@ import {
 
 describe('AI_TOOLS', () => {
   it('has exactly 19 tool definitions', () => {
-    expect(AI_TOOLS).toHaveLength(19)
+    expect(AI_TOOLS).toHaveLength(23)
   })
 
   it('every tool has a non-empty name string', () => {

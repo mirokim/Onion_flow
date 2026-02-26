@@ -429,7 +429,7 @@ describe('aiStore', () => {
       await useAIStore.getState().sendMessage('Hello')
 
       // insertMessage should be called for both user and assistant messages
-      const calls = mockAdapter.insertMessage.mock.calls.map((c: [{ role: string }]) => c[0].role)
+      const calls = mockAdapter.insertMessage.mock.calls.map((c: Array<{ role: string }>) => c[0].role)
       expect(calls).toContain('user')
       expect(calls).toContain('assistant')
     })

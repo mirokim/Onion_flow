@@ -4,7 +4,7 @@
  *        projectId isolation, dead-code removal verification.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Character, WorldSetting, WikiEntry, CharacterRelation, Foreshadow } from '@/types'
+import type { Character, WorldSetting, WikiEntry, WikiCategory, CharacterRelation, Foreshadow, Chapter } from '@/types'
 
 // ── Store mocks ──
 
@@ -41,30 +41,30 @@ function makeChar(id: string, projectId = 'proj-1'): Character {
     name: `Char ${id}`,
     aliases: [],
     role: 'supporting',
-    position: null,
-    age: null,
-    job: null,
-    affiliation: null,
-    logline: null,
-    archetype: null,
-    signatureItem: null,
-    habits: null,
+    position: 'neutral',
+    age: '',
+    job: '',
+    affiliation: '',
+    logline: '',
+    archetype: 'other',
+    signatureItem: '',
+    habits: '',
     status: 'alive',
-    currentLocation: null,
-    desire: null,
-    deficiency: null,
-    fear: null,
-    secret: null,
-    values: null,
+    currentLocation: '',
+    desire: '',
+    deficiency: '',
+    fear: '',
+    secret: '',
+    values: '',
     personality: `Personality ${id}`,
-    abilities: null,
+    abilities: '',
     appearance: `Appearance ${id}`,
-    background: null,
+    background: '',
     motivation: `Motivation ${id}`,
-    speechPattern: null,
-    imageUrl: null,
+    speechPattern: '',
+    imageUrl: '',
     tags: [],
-    notes: null,
+    notes: '',
     createdAt: 0,
     updatedAt: 0,
   }
@@ -84,7 +84,7 @@ function makeWorldSetting(id: string, projectId = 'proj-1'): WorldSetting {
   }
 }
 
-function makeWikiEntry(id: string, category: string, projectId = 'proj-1'): WikiEntry {
+function makeWikiEntry(id: string, category: WikiCategory, projectId = 'proj-1'): WikiEntry {
   return {
     id,
     projectId,
@@ -92,8 +92,6 @@ function makeWikiEntry(id: string, category: string, projectId = 'proj-1'): Wiki
     title: `Wiki ${id}`,
     content: `Content for wiki ${id}`,
     tags: [],
-    linkedEntityId: null,
-    linkedEntityType: null,
     order: 0,
     createdAt: 0,
     updatedAt: 0,
@@ -107,7 +105,7 @@ function setupDefaultState({
   relations = [] as CharacterRelation[],
   foreshadows = [] as Foreshadow[],
   wikiEntries = [] as WikiEntry[],
-  chapters = [],
+  chapters = [] as Chapter[],
 } = {}) {
   mockProjectState.mockReturnValue({
     currentProject: {
@@ -241,7 +239,7 @@ describe('buildChatSystemPrompt', () => {
 
   describe('wiki section — total cap', () => {
     it('includes all wiki entries when under MAX_TOTAL_WIKI_ENTRIES (50)', () => {
-      const entries = Array.from({ length: 30 }, (_, i) => makeWikiEntry(`w${i}`, 'character'))
+      const entries = Array.from({ length: 30 }, (_, i) => makeWikiEntry(`w${i}`, 'other'))
       setupDefaultState({ wikiEntries: entries })
       const result = buildChatSystemPrompt('proj-1')
       for (let i = 0; i < 30; i++) {
@@ -251,9 +249,9 @@ describe('buildChatSystemPrompt', () => {
 
     it('stops at MAX_TOTAL_WIKI_ENTRIES (50) across all categories', () => {
       // 3 categories × 20 entries each = 60 total, but cap is 50
-      const cat1 = Array.from({ length: 20 }, (_, i) => makeWikiEntry(`a${i}`, 'character'))
-      const cat2 = Array.from({ length: 20 }, (_, i) => makeWikiEntry(`b${i}`, 'event'))
-      const cat3 = Array.from({ length: 20 }, (_, i) => makeWikiEntry(`c${i}`, 'item'))
+      const cat1 = Array.from({ length: 20 }, (_, i) => makeWikiEntry(`a${i}`, 'magic'))
+      const cat2 = Array.from({ length: 20 }, (_, i) => makeWikiEntry(`b${i}`, 'history'))
+      const cat3 = Array.from({ length: 20 }, (_, i) => makeWikiEntry(`c${i}`, 'other'))
       setupDefaultState({ wikiEntries: [...cat1, ...cat2, ...cat3] })
       const result = buildChatSystemPrompt('proj-1')
       // Count how many wiki entries appear
@@ -263,8 +261,8 @@ describe('buildChatSystemPrompt', () => {
 
     it('filters wiki entries by projectId', () => {
       const entries = [
-        makeWikiEntry('w1', 'character', 'proj-1'),
-        makeWikiEntry('w2', 'character', 'proj-other'),
+        makeWikiEntry('w1', 'other', 'proj-1'),
+        makeWikiEntry('w2', 'other', 'proj-other'),
       ]
       setupDefaultState({ wikiEntries: entries })
       const result = buildChatSystemPrompt('proj-1')
@@ -274,7 +272,7 @@ describe('buildChatSystemPrompt', () => {
 
     it('truncates wiki content at 100 chars', () => {
       const longContent = 'Y'.repeat(150)
-      const entries = [{ ...makeWikiEntry('w1', 'character'), content: longContent }]
+      const entries = [{ ...makeWikiEntry('w1', 'other'), content: longContent }]
       setupDefaultState({ wikiEntries: entries })
       const result = buildChatSystemPrompt('proj-1')
       expect(result).toContain('Y'.repeat(100) + '...')
@@ -283,7 +281,7 @@ describe('buildChatSystemPrompt', () => {
 
   describe('chapter context delegation', () => {
     it('calls summarizeContext with chapters and projectId', () => {
-      const chapters = [
+      const chapters: Chapter[] = [
         { id: 'ch1', projectId: 'proj-1', type: 'chapter', title: 'Ch 1', order: 1, content: null, synopsis: 'S1', wordCount: 0, parentId: null, createdAt: 0, updatedAt: 0 },
         { id: 'ch2', projectId: 'proj-1', type: 'volume', title: 'Vol 1', order: 0, content: null, synopsis: '', wordCount: 0, parentId: null, createdAt: 0, updatedAt: 0 },
       ]

@@ -94,7 +94,7 @@ export function buildStorytellerPrompt(storytellerNodeId: string): string {
   // Get story context from previous chapters
   const projectStore = useProjectStore.getState()
   const chapters = projectStore.chapters.filter(c => c.type === 'chapter')
-  const contextSummary = summarizeContext(chapters)
+  const contextSummary = summarizeContext(chapters, projectStore.currentProject?.id ?? '')
 
   // Build the system prompt
   const parts: string[] = [

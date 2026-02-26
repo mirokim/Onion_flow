@@ -80,13 +80,14 @@ describe('queried chapter tracking', () => {
 // ── DELETE_TOOLS ──
 
 describe('DELETE_TOOLS', () => {
-  it('contains exactly the 4 delete tool names', () => {
+  it('contains exactly the 5 delete tool names', () => {
     expect(DELETE_TOOLS).toBeInstanceOf(Set)
-    expect(DELETE_TOOLS.size).toBe(4)
+    expect(DELETE_TOOLS.size).toBe(5)
     expect(DELETE_TOOLS.has('delete_character')).toBe(true)
     expect(DELETE_TOOLS.has('delete_world_setting')).toBe(true)
     expect(DELETE_TOOLS.has('delete_item')).toBe(true)
     expect(DELETE_TOOLS.has('delete_foreshadow')).toBe(true)
+    expect(DELETE_TOOLS.has('delete_relation')).toBe(true)
   })
 })
 

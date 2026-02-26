@@ -111,10 +111,11 @@ describe('constants: exported constants shape', () => {
     expect(VERSIONABLE_ENTITY_TYPES).toContain('chapter')
     expect(VERSIONABLE_ENTITY_TYPES).toContain('character')
     expect(VERSIONABLE_ENTITY_TYPES).toContain('world_setting')
+    expect(VERSIONABLE_ENTITY_TYPES).toContain('item')
     expect(VERSIONABLE_ENTITY_TYPES).toContain('foreshadow')
     expect(VERSIONABLE_ENTITY_TYPES).toContain('outline')
     expect(VERSIONABLE_ENTITY_TYPES).toContain('relation')
-    expect(VERSIONABLE_ENTITY_TYPES).toHaveLength(6)
+    expect(VERSIONABLE_ENTITY_TYPES).toHaveLength(7)
   })
 
   it('PROMPT_LIMITS has all expected keys and positive values', () => {

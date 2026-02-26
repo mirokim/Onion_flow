@@ -2,8 +2,8 @@
  * OpenFilesPanel — File explorer with virtual folder structure.
  * Toolbar with creation/sort/expand actions + recursive tree view.
  * Right-click context menu for file operations.
- * Supports node types: folder, canvas, chapter, volume.
- * Also shows a Wiki section at the bottom for quick access to wiki entries.
+ * Supports node types: folder, canvas, chapter, volume, wiki.
+ * Wiki entries are synced from wikiStore and appear inline in the file tree.
  */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useEditorStore, type FileTreeNode } from '@/stores/editorStore'
@@ -111,7 +111,7 @@ function FileTreeNodeComponent({
 
   const isTargetOpen = node.type === 'canvas'
     ? openCanvasTabIds.has(node.targetId!)
-    : node.type === 'chapter'
+    : (node.type === 'chapter' || node.type === 'wiki')
       ? openEditorTargetIds.has(node.targetId!)
       : true
 
@@ -120,7 +120,9 @@ function FileTreeNodeComponent({
     ? (node.targetId === activeCanvasTabId && openTabs.includes('canvas'))
     : node.type === 'chapter'
       ? (editorTabs.find(t => t.targetId === node.targetId)?.id === activeEditorTabId && openTabs.includes('editor'))
-      : false
+      : node.type === 'wiki'
+        ? (editorTabs.find(t => t.type === 'wiki' && t.targetId === node.targetId)?.id === activeEditorTabId && openTabs.includes('editor'))
+        : false
 
   const sortedChildren = useMemo(
     () => sortNodeIds(node.children, fileTreeNodes, sortBy),
@@ -137,6 +139,10 @@ function FileTreeNodeComponent({
     } else if (node.type === 'chapter' && node.targetId) {
       const tab = editorTabs.find(t => t.targetId === node.targetId)
       if (tab) setActiveEditorTab(tab.id)
+      if (!openTabs.includes('editor')) toggleTab('editor')
+      else activatePanel('editor')
+    } else if (node.type === 'wiki' && node.targetId) {
+      useEditorStore.getState().openWikiTab(node.targetId, node.name)
       if (!openTabs.includes('editor')) toggleTab('editor')
       else activatePanel('editor')
     }
@@ -215,7 +221,9 @@ function FileTreeNodeComponent({
           : <Folder className="w-3.5 h-3.5 shrink-0 text-text-muted" />)
       : node.type === 'canvas'
         ? <LayoutGrid className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-        : <FileText className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+        : node.type === 'wiki'
+          ? <BookOpen className="w-3.5 h-3.5 shrink-0 text-purple-400/80" />
+          : <FileText className="w-3.5 h-3.5 shrink-0 text-text-muted" />
 
   return (
     <div>
@@ -236,7 +244,10 @@ function FileTreeNodeComponent({
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        onDoubleClick={() => { setIsRenaming(true); setRenameValue(node.name) }}
+        onDoubleClick={() => {
+          // Wiki titles are edited inside WikiEntryEditor — skip inline rename
+          if (node.type !== 'wiki') { setIsRenaming(true); setRenameValue(node.name) }
+        }}
       >
         {/* Expand/collapse chevron for folder/volume */}
         {isGroupNode && (
@@ -374,12 +385,17 @@ function FileTreeContextMenu({
   }
 
   const isCanvas = node.type === 'canvas'
+  const isWiki = node.type === 'wiki'
 
   const handleOpenInNewTab = () => {
     if (isCanvas && node.targetId) {
       openCanvasTab(node.targetId, node.name)
       if (!openTabs.includes('canvas')) toggleTab('canvas')
       else activatePanel('canvas')
+    } else if (isWiki && node.targetId) {
+      useEditorStore.getState().openWikiTab(node.targetId, node.name)
+      if (!openTabs.includes('editor')) toggleTab('editor')
+      else activatePanel('editor')
     } else if (node.targetId) {
       openEditorTab(node.targetId, node.name)
       if (!openTabs.includes('editor')) toggleTab('editor')
@@ -392,6 +408,8 @@ function FileTreeContextMenu({
     const panelType = isCanvas ? 'canvas' as const : 'editor' as const
     if (isCanvas && node.targetId) {
       openCanvasTab(node.targetId, node.name)
+    } else if (isWiki && node.targetId) {
+      useEditorStore.getState().openWikiTab(node.targetId, node.name)
     } else if (node.targetId) {
       openEditorTab(node.targetId, node.name)
     }
@@ -405,6 +423,8 @@ function FileTreeContextMenu({
       const { generateId } = await import('@/lib/utils')
       openCanvasTab(generateId(), `${node.name} (복사본)`)
       toast.success('캔버스 복사본이 생성되었습니다.')
+    } else if (isWiki) {
+      toast.warning('위키 항목은 복사를 지원하지 않습니다.')
     } else if (node.targetId) {
       const copy = await duplicateChapter(node.targetId)
       if (copy) {
@@ -420,6 +440,12 @@ function FileTreeContextMenu({
       const data = exportCanvas()
       downloadJsonFile(data, `${node.name}.json`)
       toast.success('캔버스가 내보내기되었습니다.')
+    } else if (isWiki && node.targetId) {
+      const entry = useWikiStore.getState().entries.find(e => e.id === node.targetId)
+      if (entry) {
+        downloadTextFile(entry.content || '(빈 항목)', `${node.name}.txt`)
+        toast.success('위키 항목이 내보내기되었습니다.')
+      }
     } else if (node.targetId) {
       const chapter = chapters.find(c => c.id === node.targetId)
       if (chapter) {
@@ -432,6 +458,7 @@ function FileTreeContextMenu({
   }
 
   const handleRename = () => {
+    if (isWiki) return // wiki rename happens inside WikiEntryEditor
     onRename(menu.nodeId)
     onClose()
   }
@@ -442,6 +469,13 @@ function FileTreeContextMenu({
       if (tab) closeCanvasTab(tab.id)
       removeFileTreeNode(menu.nodeId)
       toast.success('캔버스가 삭제되었습니다.')
+    } else if (isWiki && node.targetId) {
+      // Close wiki editor tab if open
+      const wikiTab = editorTabs.find(t => t.type === 'wiki' && t.targetId === node.targetId)
+      if (wikiTab) closeEditorTab(wikiTab.id)
+      // wikiStore.deleteEntry also removes the file tree node
+      await useWikiStore.getState().deleteEntry(node.targetId)
+      toast.success('위키 항목이 삭제되었습니다.')
     } else if (node.targetId) {
       // Close the editor tab if open
       const editorTab = editorTabs.find(t => t.targetId === node.targetId)
@@ -510,22 +544,14 @@ export function OpenFilesPanel() {
   const expandAllFolders = useEditorStore(s => s.expandAllFolders)
   const collapseAllFolders = useEditorStore(s => s.collapseAllFolders)
   const openCanvasTab = useEditorStore(s => s.openCanvasTab)
-  const openWikiTab = useEditorStore(s => s.openWikiTab)
-  const openTabs = useEditorStore(s => s.openTabs)
-  const toggleTab = useEditorStore(s => s.toggleTab)
-  const activatePanel = useEditorStore(s => s.activatePanel)
 
   const chapters = useProjectStore(s => s.chapters)
   const createChapter = useProjectStore(s => s.createChapter)
   const currentProject = useProjectStore(s => s.currentProject)
   const selectChapter = useProjectStore(s => s.selectChapter)
 
-  const wikiEntries = useWikiStore(s => s.entries)
-  const createWikiEntry = useWikiStore(s => s.createEntry)
-
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null)
-  const [wikiExpanded, setWikiExpanded] = useState(true)
 
   useEffect(() => {
     syncFileTreeWithTabs()
@@ -591,18 +617,6 @@ export function OpenFilesPanel() {
   const handleContextMenuClose = useCallback(() => setContextMenu(null), [])
   const handleContextMenuRename = useCallback((nodeId: string) => setRenamingNodeId(nodeId), [])
   const handleRenamingDone = useCallback(() => setRenamingNodeId(null), [])
-
-  const handleOpenWikiEntry = useCallback((entryId: string, title: string) => {
-    openWikiTab(entryId, title)
-    if (!openTabs.includes('editor')) toggleTab('editor')
-    else activatePanel('editor')
-  }, [openWikiTab, openTabs, toggleTab, activatePanel])
-
-  const handleNewWikiEntry = useCallback(async () => {
-    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
-    const entry = await createWikiEntry(currentProject.id, 'other', '')
-    handleOpenWikiEntry(entry.id, entry.title || '새 항목')
-  }, [currentProject, createWikiEntry, handleOpenWikiEntry])
 
   return (
     <div className="flex flex-col h-full bg-bg-primary">
@@ -676,97 +690,7 @@ export function OpenFilesPanel() {
           onRename={handleContextMenuRename}
         />
       )}
-
-      {/* ── Wiki Section ── */}
-      <WikiSection
-        entries={wikiEntries}
-        activeWikiEntryId={
-          editorTabs.find(t => t.id === activeEditorTabId && t.type === 'wiki')?.targetId ?? null
-        }
-        expanded={wikiExpanded}
-        onToggle={() => setWikiExpanded(prev => !prev)}
-        onOpenEntry={handleOpenWikiEntry}
-        onNewEntry={handleNewWikiEntry}
-      />
     </div>
   )
 }
 
-/* ── WikiSection ── */
-
-function WikiSection({
-  entries,
-  activeWikiEntryId,
-  expanded,
-  onToggle,
-  onOpenEntry,
-  onNewEntry,
-}: {
-  entries: { id: string; title: string; category: string }[]
-  activeWikiEntryId: string | null
-  expanded: boolean
-  onToggle: () => void
-  onOpenEntry: (entryId: string, title: string) => void
-  onNewEntry: () => void
-}) {
-  const sortedEntries = useMemo(
-    () => [...entries].sort((a, b) => a.title.localeCompare(b.title, 'ko')),
-    [entries],
-  )
-
-  return (
-    <div className="border-t border-border shrink-0">
-      {/* Section header */}
-      <div className="flex items-center gap-1 px-1.5 py-1 text-[10px] text-text-muted uppercase tracking-wide select-none">
-        <button
-          onClick={onToggle}
-          className="flex items-center gap-1 flex-1 hover:text-text-secondary transition"
-        >
-          {expanded
-            ? <ChevronDown className="w-3 h-3 shrink-0" />
-            : <ChevronRight className="w-3 h-3 shrink-0" />}
-          <span>Wiki</span>
-          {entries.length > 0 && (
-            <span className="ml-0.5 opacity-60">({entries.length})</span>
-          )}
-        </button>
-        <button
-          onClick={onNewEntry}
-          className="p-0.5 rounded hover:bg-bg-hover hover:text-accent transition"
-          title="새 위키 항목"
-        >
-          <Plus className="w-3 h-3" />
-        </button>
-      </div>
-
-      {/* Entry list */}
-      {expanded && (
-        <div className="max-h-48 overflow-y-auto">
-          {sortedEntries.length === 0 ? (
-            <div className="px-3 py-2 text-center text-text-muted text-[10px]">
-              위키 항목이 없습니다
-            </div>
-          ) : (
-            sortedEntries.map(entry => (
-              <div
-                key={entry.id}
-                onClick={() => onOpenEntry(entry.id, entry.title)}
-                className={cn(
-                  'flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors text-xs',
-                  entry.id === activeWikiEntryId
-                    ? 'bg-bg-hover/60 text-text-primary'
-                    : 'hover:bg-bg-hover text-text-primary',
-                )}
-                style={{ paddingLeft: '24px' }}
-                title={entry.title}
-              >
-                <BookOpen className="w-3.5 h-3.5 shrink-0 text-text-muted" />
-                <span className="truncate flex-1">{entry.title || '(제목 없음)'}</span>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  )
-}

@@ -36,6 +36,7 @@ const mockAdapter = {
   insertForeshadow: vi.fn().mockResolvedValue(undefined),
   updateForeshadow: vi.fn().mockResolvedValue(undefined),
   deleteForeshadow: vi.fn().mockResolvedValue(undefined),
+  insertTrashItem: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('@/db/storageAdapter', () => ({

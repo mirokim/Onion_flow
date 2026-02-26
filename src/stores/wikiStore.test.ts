@@ -11,6 +11,7 @@ const mockAdapter = {
   insertWikiEntry: vi.fn().mockResolvedValue(undefined),
   updateWikiEntry: vi.fn().mockResolvedValue(undefined),
   deleteWikiEntry: vi.fn().mockResolvedValue(undefined),
+  insertTrashItem: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('@/db/storageAdapter', () => ({

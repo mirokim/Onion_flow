@@ -105,7 +105,7 @@ function makeNode(type: string, data: Record<string, any> = {}, id?: string): Ca
     parentCanvasId: mockParentCanvasId,
     position: { x: 0, y: 0 },
     data: { nodeType: type, nodeId, ...data },
-  } as CanvasNode
+  } as unknown as CanvasNode
 }
 
 function makeWire(

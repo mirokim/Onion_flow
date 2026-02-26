@@ -5,6 +5,7 @@ import { CATEGORY_GROUP_MAP } from '@/components/wiki/WikiCategoryList'
 import { generateId } from '@/lib/utils'
 import { nowUTC } from '@/lib/dateUtils'
 import { createEntity, withUpdatedAt, mapUpdate } from '@/lib/storeHelpers'
+import { useEditorStore } from '@/stores/editorStore'
 
 interface WikiState {
   entries: WikiEntry[]
@@ -42,6 +43,25 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     try {
       const entries = await getAdapter().fetchWikiEntries(projectId)
       set({ entries, loading: false })
+
+      // Sync file tree nodes for wiki entries
+      const { fileTreeNodes, addFileTreeNode, removeFileTreeNode } = useEditorStore.getState()
+      const existingWikiNodes = Object.values(fileTreeNodes).filter(n => n.type === 'wiki')
+      const existingWikiTargetIds = new Set(existingWikiNodes.map(n => n.targetId))
+      const entryIds = new Set(entries.map(e => e.id))
+
+      // Add missing wiki nodes
+      for (const entry of entries) {
+        if (!existingWikiTargetIds.has(entry.id)) {
+          addFileTreeNode({ type: 'wiki', name: entry.title || '새 항목', targetId: entry.id, parentId: null, children: [], isExpanded: false })
+        }
+      }
+      // Remove orphaned wiki nodes (entries deleted elsewhere)
+      for (const node of existingWikiNodes) {
+        if (node.targetId && !entryIds.has(node.targetId)) {
+          removeFileTreeNode(node.id)
+        }
+      }
     } catch (error) {
       console.error('[Wiki] Failed to load entries:', error)
       set({ entries: [], loading: false })
@@ -64,6 +84,8 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     }
     await getAdapter().insertWikiEntry(entry)
     set(s => ({ entries: [...s.entries, entry] }))
+    // Add to file tree
+    useEditorStore.getState().addFileTreeNode({ type: 'wiki', name: entry.title || '새 항목', targetId: entry.id, parentId: null, children: [], isExpanded: false })
     return entry
   },
 
@@ -71,6 +93,12 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     const merged = withUpdatedAt(updates)
     await getAdapter().updateWikiEntry(id, merged)
     set(s => ({ entries: mapUpdate(s.entries, id, merged) }))
+    // Sync file tree node name when title changes
+    if (updates.title !== undefined) {
+      const { fileTreeNodes, renameFileTreeNode } = useEditorStore.getState()
+      const wikiNode = Object.values(fileTreeNodes).find(n => n.type === 'wiki' && n.targetId === id)
+      if (wikiNode) renameFileTreeNode(wikiNode.id, updates.title || '새 항목')
+    }
   },
 
   deleteEntry: async (id) => {
@@ -84,6 +112,10 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       entries: s.entries.filter(e => e.id !== id),
       selectedEntryId: s.selectedEntryId === id ? null : s.selectedEntryId,
     }))
+    // Remove from file tree
+    const { fileTreeNodes, removeFileTreeNode } = useEditorStore.getState()
+    const wikiNode = Object.values(fileTreeNodes).find(n => n.type === 'wiki' && n.targetId === id)
+    if (wikiNode) removeFileTreeNode(wikiNode.id)
   },
 
   selectEntry: (id) => set({ selectedEntryId: id }),
@@ -106,6 +138,8 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     }
     await getAdapter().insertWikiEntry(entry)
     set(s => ({ entries: [...s.entries, entry] }))
+    // Add to file tree
+    useEditorStore.getState().addFileTreeNode({ type: 'wiki', name: entry.title || '새 항목', targetId: entry.id, parentId: null, children: [], isExpanded: false })
     return entry
   },
 

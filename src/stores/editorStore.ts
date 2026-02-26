@@ -65,7 +65,7 @@ function maxWidthForGroup(tabs: PanelTab[]): number {
 // File tree node for the virtual file explorer
 export interface FileTreeNode {
   id: string
-  type: 'folder' | 'canvas' | 'chapter' | 'volume'
+  type: 'folder' | 'canvas' | 'chapter' | 'volume' | 'wiki'
   name: string
   targetId?: string          // for canvas/chapter: references the actual tab/chapter ID
   children: string[]         // for folders: ordered child node IDs

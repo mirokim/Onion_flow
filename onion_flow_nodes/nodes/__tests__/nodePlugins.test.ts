@@ -97,7 +97,7 @@ function makeNode(type: string, data: Record<string, any> = {}): CanvasNode {
     type,
     position: { x: 0, y: 0 },
     data: { nodeType: type, nodeId: `node-${type}-test`, ...data },
-  } as CanvasNode
+  } as unknown as CanvasNode
 }
 
 function makeWikiEntry(overrides: Partial<WikiEntry> = {}): WikiEntry {
