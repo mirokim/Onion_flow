@@ -52,8 +52,8 @@ export function TabBar() {
     return () => ro.disconnect()
   }, [])
 
-  // Icon is ~10px smaller than button, clamped to 12px minimum
-  const iconSize = Math.max(12, btnSize - 10)
+  // Icon is ~14px smaller than button for a lighter, outline-style look
+  const iconSize = Math.max(12, btnSize - 14)
 
   const openTabDefs = ALL_TABS.filter(t => openTabs.includes(t.key))
   const closedTabDefs = ALL_TABS.filter(t => !openTabs.includes(t.key))
@@ -76,7 +76,7 @@ export function TabBar() {
             )}
             title={label}
           >
-            <Icon style={{ width: iconSize, height: iconSize }} />
+            <Icon style={{ width: iconSize, height: iconSize }} strokeWidth={1.5} />
           </button>
         ))}
       </div>
@@ -96,7 +96,7 @@ export function TabBar() {
                 className="flex items-center justify-center rounded transition-all text-text-muted hover:text-text-secondary hover:bg-bg-hover border border-transparent"
                 title={label}
               >
-                <Icon style={{ width: iconSize, height: iconSize }} />
+                <Icon style={{ width: iconSize, height: iconSize }} strokeWidth={1.5} />
               </button>
             ))}
           </div>
