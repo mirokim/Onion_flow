@@ -16,6 +16,7 @@ import {
   Folder, FolderOpen, LayoutGrid, FileText, Plus,
   ChevronRight, ChevronDown, Trash2,
   ExternalLink, AppWindow, Copy, Download, Edit3, BookOpen,
+  ArrowDownAZ, ArrowDownWideNarrow,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
@@ -786,13 +787,12 @@ function BonbunSection({
 
 /* ── WikiListView (통합: 본문 + 위키항목) ── */
 
-function WikiListView() {
+function WikiListView({ search, sortBy }: { search: string; sortBy: 'name' | 'date' }) {
   const entries = useWikiStore(s => s.entries)
   const allChapters = useProjectStore(s => s.chapters)
   const createChapter = useProjectStore(s => s.createChapter)
   const selectChapter = useProjectStore(s => s.selectChapter)
   const currentProject = useProjectStore(s => s.currentProject)
-  const [search, setSearch] = useState('')
 
   const q = search.trim().toLowerCase()
 
@@ -800,10 +800,11 @@ function WikiListView() {
   const volumes = useMemo(() => allChapters.filter(c => c.type === 'volume'), [allChapters])
   const leafChapters = useMemo(() => allChapters.filter(c => c.type === 'chapter'), [allChapters])
 
-  const filteredLeaf = useMemo(
-    () => q ? leafChapters.filter(c => c.title.toLowerCase().includes(q)) : leafChapters,
-    [leafChapters, q],
-  )
+  const filteredLeaf = useMemo(() => {
+    let result = q ? leafChapters.filter(c => c.title.toLowerCase().includes(q)) : leafChapters
+    if (sortBy === 'name') result = [...result].sort((a, b) => a.title.localeCompare(b.title))
+    return result
+  }, [leafChapters, q, sortBy])
 
   const volumeChildMap = useMemo(() => {
     const map = new Map<string | null, ChapterItem[]>()
@@ -832,10 +833,11 @@ function WikiListView() {
   const showBonbun = !q || bonbunVolumes.length > 0 || orphanChapters.length > 0
 
   // ── 위키 ──
-  const filteredEntries = useMemo(
-    () => q ? entries.filter(e => (e.title ?? '').toLowerCase().includes(q)) : entries,
-    [entries, q],
-  )
+  const filteredEntries = useMemo(() => {
+    let result = q ? entries.filter(e => (e.title ?? '').toLowerCase().includes(q)) : entries
+    if (sortBy === 'name') result = [...result].sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
+    return result
+  }, [entries, q, sortBy])
   const grouped = useMemo(
     () => WIKI_CATEGORY_GROUPS
       .map(g => ({
@@ -897,16 +899,6 @@ function WikiListView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Search */}
-      <div className="px-2 py-1.5 shrink-0">
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="검색..."
-          className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50"
-        />
-      </div>
-
       <div className="flex-1 overflow-y-auto">
         {noResults ? (
           <div className="px-3 py-4 text-center text-text-muted text-xs">검색 결과 없음</div>
@@ -943,6 +935,9 @@ export function OpenFilesPanel() {
   const editorTabs = useEditorStore(s => s.editorTabs)
   const syncFileTreeWithTabs = useEditorStore(s => s.syncFileTreeWithTabs)
 
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'name' | 'date'>('date')
+
   // Keep file tree synced (wiki nodes depend on this)
   useEffect(() => {
     syncFileTreeWithTabs()
@@ -950,13 +945,28 @@ export function OpenFilesPanel() {
 
   return (
     <div className="flex flex-col h-full bg-bg-primary">
-      {/* Toolbar: single + dropdown */}
-      <div className="flex items-center justify-end px-1.5 py-1 shrink-0 border-b border-border/40">
+      {/* Toolbar */}
+      <div className="flex items-center gap-1 px-1.5 py-1 shrink-0 border-b border-border/40">
         <CreateDropdown />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="검색..."
+          className="flex-1 min-w-0 bg-bg-secondary border border-border rounded px-2 py-0.5 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50"
+        />
+        <button
+          onClick={() => setSortBy(s => s === 'name' ? 'date' : 'name')}
+          className="shrink-0 p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
+          title={sortBy === 'name' ? '날짜순' : '이름순'}
+        >
+          {sortBy === 'name'
+            ? <ArrowDownAZ className="w-3.5 h-3.5" />
+            : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
+        </button>
       </div>
 
       {/* Integrated content view */}
-      <WikiListView />
+      <WikiListView search={search} sortBy={sortBy} />
     </div>
   )
 }
