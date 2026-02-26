@@ -13,7 +13,7 @@ registerPlugin({
   definition: {
     type: 'virtual_reader',
     label: 'Virtual Reader',
-    labelKo: '✨ 가상 독자',
+    labelKo: '🤖 가상 독자',
     category: 'special',
     tags: ['special', 'ai'],
     color: NODE_CATEGORY_COLORS.special,
@@ -39,7 +39,7 @@ registerPlugin({
   definition: {
     type: 'preview_changed',
     label: 'Preview Changed',
-    labelKo: '✨ 변화 미리보기',
+    labelKo: '🤖 변화 미리보기',
     category: 'special',
     tags: ['special', 'ai', 'character'],
     color: NODE_CATEGORY_COLORS.special,

@@ -138,7 +138,7 @@ registerPlugin({
   definition: {
     type: 'reader',
     label: 'Reader Perspective',
-    labelKo: '✨ 독자 시점',
+    labelKo: '🤖 독자 시점',
     category: 'special',
     tags: ['special', 'ai'],
     color: NODE_CATEGORY_COLORS.special,
@@ -161,7 +161,7 @@ registerPlugin({
       },
     ],
     defaultData: {
-      label: '✨ 독자 시점',
+      label: '🤖 독자 시점',
       readerType: 'general',
     },
   },

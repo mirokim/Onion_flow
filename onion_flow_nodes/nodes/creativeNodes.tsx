@@ -34,7 +34,7 @@ registerPlugin({
   definition: {
     type: 'what_if',
     label: 'What-If Branch',
-    labelKo: '✨ 평행우주 분기',
+    labelKo: '🤖 평행우주 분기',
     category: 'special',
     tags: ['special', 'ai'],
     color: NODE_CATEGORY_COLORS.special,
@@ -77,7 +77,7 @@ registerPlugin({
   definition: {
     type: 'show_dont_tell',
     label: "Show Don't Tell",
-    labelKo: '✨ 묘사 증폭',
+    labelKo: '🤖 묘사 증폭',
     category: 'special',
     tags: ['special', 'ai'],
     color: NODE_CATEGORY_COLORS.special,
@@ -138,7 +138,7 @@ registerPlugin({
   definition: {
     type: 'tikitaka',
     label: 'Tikitaka Dialogue',
-    labelKo: '✨ 티키타카 대화',
+    labelKo: '🤖 티키타카 대화',
     category: 'special',
     tags: ['special', 'ai', 'character'],
     color: NODE_CATEGORY_COLORS.special,
@@ -213,7 +213,7 @@ registerPlugin({
   definition: {
     type: 'cliffhanger',
     label: 'Cliffhanger',
-    labelKo: '✨ 절단신공',
+    labelKo: '🤖 절단신공',
     category: 'special',
     tags: ['special', 'ai'],
     color: NODE_CATEGORY_COLORS.special,

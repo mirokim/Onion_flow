@@ -100,7 +100,7 @@ registerPlugin({
   definition: {
     type: 'lod',
     label: 'LOD Viewer',
-    labelKo: '✨ LOD 뷰어',
+    labelKo: '🤖 LOD 뷰어',
     category: 'special',
     tags: ['special', 'ai'],
     color: NODE_CATEGORY_COLORS.special,
@@ -123,7 +123,7 @@ registerPlugin({
       },
     ],
     defaultData: {
-      label: '✨ LOD 뷰어',
+      label: '🤖 LOD 뷰어',
       plotSummary: null,
       sceneSummary: null,
     },
