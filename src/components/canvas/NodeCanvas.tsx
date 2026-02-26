@@ -92,8 +92,8 @@ function NodeCanvasInner() {
               style: { width: n.width || 300, height: n.height || 200 },
               zIndex: -1, // Groups always behind regular nodes
             }
-          // plot_context nodes: pass stored dimensions for resize support
-          : n.type === 'plot_context' && n.width && n.height
+          // plot_context nodes: pass stored dimensions only in write mode (resize support)
+          : n.type === 'plot_context' && n.data?.mode === 'write' && n.width && n.height
           ? {
               width: n.width,
               height: n.height,
