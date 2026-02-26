@@ -49,7 +49,7 @@ registerPlugin({
   definition: {
     type: 'storyteller',
     label: 'AI Storyteller',
-    labelKo: 'AI 스토리텔러',
+    labelKo: '✨ AI 스토리텔러',
     category: 'processing',
     tags: ['processing', 'ai'],
     color: NODE_CATEGORY_COLORS.processing,
@@ -95,7 +95,7 @@ registerPlugin({
   definition: {
     type: 'summarizer',
     label: 'Summarizer',
-    labelKo: '스토리 축약',
+    labelKo: '✨ 스토리 축약',
     category: 'processing',
     tags: ['processing', 'ai'],
     color: NODE_CATEGORY_COLORS.processing,

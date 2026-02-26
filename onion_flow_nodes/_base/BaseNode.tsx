@@ -57,6 +57,7 @@ function BaseNodeComponent({ id, data, selected }: NodeProps & { data: BaseNodeD
     <div
       className={cn(
         'canvas-node relative overflow-visible rounded-lg shadow-md border-2 min-w-[160px]',
+        data.nodeType === 'lod'       ? 'max-w-[340px]' :
         data.nodeType === 'character' ? 'max-w-[320px]' : 'max-w-[280px]',
         'bg-bg-surface text-text-primary',
         selected ? 'border-accent shadow-accent/20' : 'border-border',

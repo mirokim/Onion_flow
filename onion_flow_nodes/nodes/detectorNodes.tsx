@@ -33,7 +33,7 @@ registerPlugin({
   definition: {
     type: 'emotion_tracker',
     label: 'Emotion Tracker',
-    labelKo: '감정 트래커',
+    labelKo: '✨ 감정 트래커',
     category: 'detector',
     tags: ['detector', 'ai'],
     color: NODE_CATEGORY_COLORS.detector,
@@ -51,7 +51,7 @@ registerPlugin({
   definition: {
     type: 'foreshadow_detector',
     label: 'Foreshadow Detector',
-    labelKo: '복선 디텍터',
+    labelKo: '✨ 복선 디텍터',
     category: 'detector',
     tags: ['detector', 'ai'],
     color: NODE_CATEGORY_COLORS.detector,
@@ -69,7 +69,7 @@ registerPlugin({
   definition: {
     type: 'conflict_defense',
     label: 'Conflict Defense',
-    labelKo: '설정 충돌 방어',
+    labelKo: '✨ 설정 충돌 방어',
     category: 'detector',
     tags: ['detector', 'ai'],
     color: NODE_CATEGORY_COLORS.detector,

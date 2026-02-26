@@ -122,7 +122,7 @@ registerPlugin({
   definition: {
     type: 'brainstorming',
     label: 'Brainstorming',
-    labelKo: '브레인스토밍',
+    labelKo: '✨ 브레인스토밍',
     category: 'special',
     tags: ['special', 'ai'],
     color: NODE_CATEGORY_COLORS.special,
@@ -154,7 +154,7 @@ registerPlugin({
     defaultData: {
       mode: 'plot',
       count: 3,
-      label: '브레인스토밍',
+      label: '✨ 브레인스토밍',
       selectedChoice: null,
     },
   },

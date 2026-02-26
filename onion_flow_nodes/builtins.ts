@@ -17,6 +17,10 @@ import './nodes/processingNodes'
 import './nodes/creativeNodes'
 // ── Brainstorming node ────────────────────────────────────────────────────────
 import './nodes/brainstormingNode'
+// ── LOD viewer node ───────────────────────────────────────────────────────────
+import './nodes/lodNode'
+// ── Reader perspective node ───────────────────────────────────────────────────
+import './nodes/readerNode'
 // ── Detector nodes ────────────────────────────────────────────────────────────
 import './nodes/detectorNodes'
 // ── Special (analysis) nodes ─────────────────────────────────────────────────
