@@ -49,17 +49,19 @@ export function ResizeHandle({ onResize, className }: ResizeHandleProps) {
   }, [isDragging])
 
   return (
-    <div
-      onMouseDown={handleMouseDown}
-      className={cn(
-        'w-3 shrink-0 cursor-col-resize group relative z-10 flex items-center justify-center',
-        className,
-      )}
-    >
-      <div className={cn(
-        'absolute top-0 bottom-0 w-px transition-colors',
-        isDragging ? 'bg-accent/60' : 'bg-border/40 group-hover:bg-accent/50',
-      )} />
+    <div className={cn('w-1 shrink-0 relative z-10', className)}>
+      {/* Wider invisible hit area via negative insets — does not affect flex layout */}
+      <div
+        onMouseDown={handleMouseDown}
+        className={cn(
+          'absolute inset-y-0 -left-2 -right-2 cursor-col-resize group flex items-center justify-center',
+        )}
+      >
+        <div className={cn(
+          'w-px h-full transition-colors',
+          isDragging ? 'bg-accent/60' : 'bg-border/40 group-hover:bg-accent/50',
+        )} />
+      </div>
     </div>
   )
 }
