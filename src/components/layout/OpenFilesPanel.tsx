@@ -10,6 +10,8 @@ import { useEditorStore, type FileTreeNode } from '@/stores/editorStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useCanvasStore } from '@/stores/canvasStore'
 import { useWikiStore } from '@/stores/wikiStore'
+import type { WikiEntry } from '@/types'
+import { WIKI_CATEGORIES, WIKI_CATEGORY_GROUPS } from '@/components/wiki/WikiCategoryList'
 import {
   Folder, FolderOpen, FolderPlus, LayoutGrid, FileText, Plus,
   ArrowDownAZ, ArrowDownWideNarrow, ChevronsUpDown, ChevronsDownUp,
@@ -528,6 +530,116 @@ function FileTreeContextMenu({
   )
 }
 
+/* ── WikiGroupSection ── */
+
+const CATEGORY_LABEL_MAP = Object.fromEntries(
+  WIKI_CATEGORIES.map(c => [c.key, { labelKo: c.labelKo, icon: c.icon }]),
+)
+
+function WikiGroupSection({
+  group,
+  onOpenEntry,
+}: {
+  group: { id: string; labelKo: string; icon: React.ReactNode; entries: WikiEntry[] }
+  onOpenEntry: (entry: WikiEntry) => void
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+
+  return (
+    <div>
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="flex items-center gap-1.5 w-full px-2 py-1 text-[11px] font-medium text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
+      >
+        {collapsed
+          ? <ChevronRight className="w-3 h-3 shrink-0" />
+          : <ChevronDown className="w-3 h-3 shrink-0" />}
+        <span className="shrink-0">{group.icon}</span>
+        <span>{group.labelKo}</span>
+        <span className="ml-auto opacity-60">{group.entries.length}</span>
+      </button>
+
+      {!collapsed && group.entries.map(entry => {
+        const catInfo = CATEGORY_LABEL_MAP[entry.category]
+        return (
+          <div
+            key={entry.id}
+            onClick={() => onOpenEntry(entry)}
+            className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition"
+            style={{ paddingLeft: '28px' }}
+          >
+            <span className="shrink-0 text-purple-400/80">
+              {catInfo?.icon ?? <BookOpen className="w-3 h-3" />}
+            </span>
+            <span className="truncate flex-1">{entry.title || '제목 없음'}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ── WikiListView ── */
+
+function WikiListView() {
+  const entries = useWikiStore(s => s.entries)
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return entries
+    const q = search.toLowerCase()
+    return entries.filter(e => (e.title ?? '').toLowerCase().includes(q))
+  }, [entries, search])
+
+  const grouped = useMemo(
+    () => WIKI_CATEGORY_GROUPS
+      .map(g => ({
+        id: g.id,
+        labelKo: g.labelKo,
+        icon: g.icon,
+        entries: filtered.filter(e => g.categories.some(c => c.key === e.category)),
+      }))
+      .filter(g => g.entries.length > 0),
+    [filtered],
+  )
+
+  const handleOpenEntry = useCallback((entry: WikiEntry) => {
+    useEditorStore.getState().openWikiTab(entry.id, entry.title || '새 항목')
+    const { openTabs, toggleTab, activatePanel } = useEditorStore.getState()
+    if (!openTabs.includes('editor')) toggleTab('editor')
+    else activatePanel('editor')
+  }, [])
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Search */}
+      <div className="px-2 py-1.5 shrink-0">
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="위키 검색..."
+          className="w-full bg-bg-secondary border border-border rounded px-2 py-1 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50"
+        />
+      </div>
+
+      {/* Entry list */}
+      <div className="flex-1 overflow-y-auto">
+        {entries.length === 0 ? (
+          <div className="px-3 py-6 text-center text-text-muted text-xs">
+            위키 항목이 없습니다
+          </div>
+        ) : grouped.length === 0 ? (
+          <div className="px-3 py-4 text-center text-text-muted text-xs">검색 결과 없음</div>
+        ) : (
+          grouped.map(g => (
+            <WikiGroupSection key={g.id} group={g} onOpenEntry={handleOpenEntry} />
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 /* ── OpenFilesPanel ── */
 
 export function OpenFilesPanel() {
@@ -550,6 +662,7 @@ export function OpenFilesPanel() {
   const currentProject = useProjectStore(s => s.currentProject)
   const selectChapter = useProjectStore(s => s.selectChapter)
 
+  const [panelViewMode, setPanelViewMode] = useState<'files' | 'wiki'>('files')
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null)
 
@@ -620,75 +733,112 @@ export function OpenFilesPanel() {
 
   return (
     <div className="flex flex-col h-full bg-bg-primary">
-      {/* Toolbar */}
-      <div className="flex items-center justify-center gap-0.5 px-1.5 py-1.5 shrink-0 flex-wrap">
-        <button onClick={handleNewStoryflow} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 스토리플로우">
-          <LayoutGrid className="w-3.5 h-3.5" />
-        </button>
-        <button onClick={handleNewDocument} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 본문">
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-        <button onClick={handleNewFolder} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 폴더">
-          <FolderPlus className="w-3.5 h-3.5" />
-        </button>
-        <button onClick={handleNewVolume} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 볼륨">
-          <BookOpen className="w-3.5 h-3.5" />
-        </button>
-        <div className="w-px h-4 bg-border mx-0.5" />
-
+      {/* View mode toggle */}
+      <div className="flex items-center shrink-0 border-b border-border/50 bg-bg-secondary/40">
         <button
-          onClick={() => setFileTreeSortBy(fileTreeSortBy === 'name' ? 'date' : 'name')}
-          className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
-          title={fileTreeSortBy === 'name' ? '날짜순 정렬' : '이름순 정렬'}
+          onClick={() => setPanelViewMode('files')}
+          className={cn(
+            'flex items-center gap-1 flex-1 justify-center py-1 text-[11px] transition',
+            panelViewMode === 'files'
+              ? 'text-text-primary bg-bg-hover font-medium'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
+          )}
+          title="파일 트리"
         >
-          {fileTreeSortBy === 'name'
-            ? <ArrowDownAZ className="w-3.5 h-3.5" />
-            : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
+          <FolderOpen className="w-3 h-3" />
+          <span>파일</span>
         </button>
-        <button onClick={expandAllFolders} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="모두 펼치기">
-          <ChevronsUpDown className="w-3.5 h-3.5" />
-        </button>
-        <button onClick={collapseAllFolders} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="모두 접기">
-          <ChevronsDownUp className="w-3.5 h-3.5" />
+        <div className="w-px h-4 bg-border" />
+        <button
+          onClick={() => setPanelViewMode('wiki')}
+          className={cn(
+            'flex items-center gap-1 flex-1 justify-center py-1 text-[11px] transition',
+            panelViewMode === 'wiki'
+              ? 'text-text-primary bg-bg-hover font-medium'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
+          )}
+          title="위키 목록"
+        >
+          <BookOpen className="w-3 h-3" />
+          <span>위키</span>
         </button>
       </div>
 
-      {/* Tree */}
-      <div
-        className="flex-1 overflow-y-auto py-1"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={handleRootDrop}
-      >
-        {sortedRoots.length === 0 ? (
-          <div className="px-3 py-4 text-center text-text-muted text-xs">
-            파일이 없습니다.
+      {panelViewMode === 'wiki' ? (
+        <WikiListView />
+      ) : (
+        <>
+          {/* Toolbar */}
+          <div className="flex items-center justify-center gap-0.5 px-1.5 py-1.5 shrink-0 flex-wrap">
+            <button onClick={handleNewStoryflow} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 스토리플로우">
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={handleNewDocument} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 본문">
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={handleNewFolder} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 폴더">
+              <FolderPlus className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={handleNewVolume} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="새 볼륨">
+              <BookOpen className="w-3.5 h-3.5" />
+            </button>
+            <div className="w-px h-4 bg-border mx-0.5" />
+
+            <button
+              onClick={() => setFileTreeSortBy(fileTreeSortBy === 'name' ? 'date' : 'name')}
+              className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition"
+              title={fileTreeSortBy === 'name' ? '날짜순 정렬' : '이름순 정렬'}
+            >
+              {fileTreeSortBy === 'name'
+                ? <ArrowDownAZ className="w-3.5 h-3.5" />
+                : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
+            </button>
+            <button onClick={expandAllFolders} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="모두 펼치기">
+              <ChevronsUpDown className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={collapseAllFolders} className="p-1 rounded text-text-muted hover:text-accent hover:bg-bg-hover transition" title="모두 접기">
+              <ChevronsDownUp className="w-3.5 h-3.5" />
+            </button>
           </div>
-        ) : (
-          sortedRoots.map(rootId => (
-            <FileTreeNodeComponent
-              key={rootId}
-              nodeId={rootId}
-              depth={0}
-              activeCanvasTabId={activeCanvasTabId}
-              activeEditorTabId={activeEditorTabId}
-              openCanvasTabIds={openCanvasTabIds}
-              openEditorTargetIds={openEditorTargetIds}
-              sortBy={fileTreeSortBy}
-              onContextMenu={setContextMenu}
-              renamingNodeId={renamingNodeId}
-              onRenamingDone={handleRenamingDone}
-            />
-          ))
-        )}
-      </div>
 
-      {/* Context menu */}
-      {contextMenu && (
-        <FileTreeContextMenu
-          menu={contextMenu}
-          onClose={handleContextMenuClose}
-          onRename={handleContextMenuRename}
-        />
+          {/* Tree */}
+          <div
+            className="flex-1 overflow-y-auto py-1"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleRootDrop}
+          >
+            {sortedRoots.length === 0 ? (
+              <div className="px-3 py-4 text-center text-text-muted text-xs">
+                파일이 없습니다.
+              </div>
+            ) : (
+              sortedRoots.map(rootId => (
+                <FileTreeNodeComponent
+                  key={rootId}
+                  nodeId={rootId}
+                  depth={0}
+                  activeCanvasTabId={activeCanvasTabId}
+                  activeEditorTabId={activeEditorTabId}
+                  openCanvasTabIds={openCanvasTabIds}
+                  openEditorTargetIds={openEditorTargetIds}
+                  sortBy={fileTreeSortBy}
+                  onContextMenu={setContextMenu}
+                  renamingNodeId={renamingNodeId}
+                  onRenamingDone={handleRenamingDone}
+                />
+              ))
+            )}
+          </div>
+
+          {/* Context menu */}
+          {contextMenu && (
+            <FileTreeContextMenu
+              menu={contextMenu}
+              onClose={handleContextMenuClose}
+              onRename={handleContextMenuRename}
+            />
+          )}
+        </>
       )}
     </div>
   )

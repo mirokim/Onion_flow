@@ -3,7 +3,7 @@
  * Nodes at the current depth are sorted top-to-bottom by their y position and rendered
  * as editable paragraphs. Useful for reading/writing story beats in sequence.
  */
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useCanvasStore } from '@/stores/canvasStore'
 import type { CanvasNode } from '@/types'
 import { cn } from '@/lib/utils'
@@ -122,16 +122,26 @@ function NodeDocumentBlock({ node }: { node: CanvasNode }) {
 /* ── CanvasDocumentView ── */
 
 export function CanvasDocumentView() {
-  // Subscribe directly to nodes + depth path so the component re-renders on any change
-  const nodes = useCanvasStore(s => {
-    const parentId = s.currentDepthPath.length > 0
-      ? s.currentDepthPath[s.currentDepthPath.length - 1]
-      : null
-    return s.nodes.filter(n => n.parentCanvasId === parentId)
-  })
+  // Use same pattern as NodeCanvas: separate primitive subscriptions + useMemo
+  // Inline selector returning filter() always produces a new array reference,
+  // causing Zustand to skip the equality check and re-subscribe every render.
+  const storeNodes = useCanvasStore(s => s.nodes)
+  const currentDepthPath = useCanvasStore(s => s.currentDepthPath)
+
+  const parentId = currentDepthPath.length > 0
+    ? currentDepthPath[currentDepthPath.length - 1]
+    : null
+
+  const nodes = useMemo(
+    () => storeNodes.filter(n => n.parentCanvasId === parentId),
+    [storeNodes, parentId],
+  )
 
   // Sort by y position (top to bottom)
-  const sortedNodes = [...nodes].sort((a, b) => a.position.y - b.position.y)
+  const sortedNodes = useMemo(
+    () => [...nodes].sort((a, b) => a.position.y - b.position.y),
+    [nodes],
+  )
 
   if (sortedNodes.length === 0) {
     return (

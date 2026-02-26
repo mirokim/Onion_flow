@@ -53,18 +53,6 @@ export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasP
     setDepthPath([newTargetId])
   }
 
-  const viewToggle = (
-    <button
-      onClick={() => setViewMode(viewMode === 'graph' ? 'document' : 'graph')}
-      className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
-      title={viewMode === 'graph' ? '문서 뷰로 전환' : '그래프 뷰로 전환'}
-    >
-      {viewMode === 'graph'
-        ? <AlignLeft className="w-3.5 h-3.5" />
-        : <LayoutGrid className="w-3.5 h-3.5" />}
-    </button>
-  )
-
   return (
     <div className="flex flex-col h-full min-h-0">
       {!isGrouped && (
@@ -79,7 +67,6 @@ export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasP
           canClose
           panelDragHandlers={panelDragHandlers}
           panelType="canvas"
-          actions={viewToggle}
           onRenameTab={(tabId) => {
             const tab = canvasTabs.find(t => t.id === tabId)
             if (tab) {
@@ -97,6 +84,35 @@ export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasP
         />
       )}
       <DepthBreadcrumb />
+
+      {/* View mode sub-header — always visible regardless of tab/group state */}
+      <div className="flex items-center justify-end gap-1 px-2 py-0.5 bg-bg-secondary/40 border-b border-border/50 shrink-0">
+        <button
+          onClick={() => setViewMode('graph')}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition ${
+            viewMode === 'graph'
+              ? 'bg-bg-hover text-text-primary font-medium'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+          }`}
+          title="그래프 뷰"
+        >
+          <LayoutGrid className="w-3 h-3" />
+          <span>그래프</span>
+        </button>
+        <button
+          onClick={() => setViewMode('document')}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition ${
+            viewMode === 'document'
+              ? 'bg-bg-hover text-text-primary font-medium'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'
+          }`}
+          title="문서 뷰"
+        >
+          <AlignLeft className="w-3 h-3" />
+          <span>문서</span>
+        </button>
+      </div>
+
       <div className="flex-1 relative overflow-hidden min-h-0">
         {viewMode === 'graph' ? <NodeCanvas /> : <CanvasDocumentView />}
       </div>
