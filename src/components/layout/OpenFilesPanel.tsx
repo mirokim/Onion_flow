@@ -16,7 +16,7 @@ import {
   Folder, FolderOpen, LayoutGrid, FileText, Plus,
   ChevronRight, ChevronDown, Trash2,
   ExternalLink, AppWindow, Copy, Download, Edit3, BookOpen,
-  ArrowDownAZ, ArrowDownWideNarrow,
+  ArrowDownWideNarrow,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
@@ -30,6 +30,14 @@ interface ContextMenuState {
   y: number
   nodeId: string
 }
+
+type SortMode = 'name' | 'createdAt' | 'updatedAt'
+
+const SORT_OPTIONS: { value: SortMode; label: string }[] = [
+  { value: 'updatedAt', label: '최종수정순' },
+  { value: 'createdAt', label: '만든날짜순' },
+  { value: 'name', label: '이름순' },
+]
 
 /* ── helpers ── */
 
@@ -547,6 +555,18 @@ function CreateDropdown() {
     return () => document.removeEventListener('mousedown', handle)
   }, [open])
 
+  const handleNewChapter = async () => {
+    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); setOpen(false); return }
+    const ps = useProjectStore.getState()
+    const count = ps.chapters.filter(c => c.type === 'chapter').length
+    const ch = await ps.createChapter(`챕터 ${count + 1}`)
+    ps.selectChapter(ch.id)
+    const s = useEditorStore.getState()
+    if (!s.openTabs.includes('editor')) s.toggleTab('editor')
+    else s.activatePanel('editor')
+    setOpen(false)
+  }
+
   const handleNewCanvas = () => {
     openCanvasTab(null, '새 캔버스')
     setOpen(false)
@@ -578,6 +598,13 @@ function CreateDropdown() {
       {open && (
         <div className="absolute left-0 top-full mt-0.5 bg-bg-surface border border-border rounded-lg shadow-xl py-1 w-36 z-50 text-xs">
           <button
+            onClick={handleNewChapter}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-text-primary hover:bg-bg-hover transition text-left"
+          >
+            <FileText className="w-3.5 h-3.5 text-text-muted shrink-0" />
+            새 본문
+          </button>
+          <button
             onClick={handleNewCanvas}
             className="w-full flex items-center gap-2 px-3 py-1.5 text-text-primary hover:bg-bg-hover transition text-left"
           >
@@ -591,6 +618,57 @@ function CreateDropdown() {
             <BookOpen className="w-3.5 h-3.5 text-purple-400/80 shrink-0" />
             새 위키항목
           </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── SortDropdown ── */
+
+function SortDropdown({ sortBy, onChange }: { sortBy: SortMode; onChange: (s: SortMode) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'flex items-center gap-0.5 px-1.5 py-1 rounded transition',
+          open ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
+        )}
+        title="정렬"
+      >
+        <ArrowDownWideNarrow className="w-3.5 h-3.5" />
+        <ChevronDown className="w-2 h-2" />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-0.5 bg-bg-surface border border-border rounded-lg shadow-xl py-1 w-32 z-50 text-xs">
+          {SORT_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className={cn(
+                'w-full flex items-center px-3 py-1.5 text-left transition',
+                sortBy === opt.value
+                  ? 'text-accent font-medium bg-accent/5'
+                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+              )}
+            >
+              <span className="flex-1">{opt.label}</span>
+              {sortBy === opt.value && <span className="text-[10px] opacity-60">●</span>}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -787,7 +865,7 @@ function BonbunSection({
 
 /* ── WikiListView (통합: 본문 + 위키항목) ── */
 
-function WikiListView({ search, sortBy }: { search: string; sortBy: 'name' | 'date' }) {
+function WikiListView({ search, sortBy }: { search: string; sortBy: SortMode }) {
   const entries = useWikiStore(s => s.entries)
   const allChapters = useProjectStore(s => s.chapters)
   const createChapter = useProjectStore(s => s.createChapter)
@@ -803,6 +881,8 @@ function WikiListView({ search, sortBy }: { search: string; sortBy: 'name' | 'da
   const filteredLeaf = useMemo(() => {
     let result = q ? leafChapters.filter(c => c.title.toLowerCase().includes(q)) : leafChapters
     if (sortBy === 'name') result = [...result].sort((a, b) => a.title.localeCompare(b.title))
+    else if (sortBy === 'createdAt') result = [...result].sort((a, b) => b.createdAt - a.createdAt)
+    else result = [...result].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
     return result
   }, [leafChapters, q, sortBy])
 
@@ -836,6 +916,8 @@ function WikiListView({ search, sortBy }: { search: string; sortBy: 'name' | 'da
   const filteredEntries = useMemo(() => {
     let result = q ? entries.filter(e => (e.title ?? '').toLowerCase().includes(q)) : entries
     if (sortBy === 'name') result = [...result].sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''))
+    else if (sortBy === 'createdAt') result = [...result].sort((a, b) => b.createdAt - a.createdAt)
+    else result = [...result].sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
     return result
   }, [entries, q, sortBy])
   const grouped = useMemo(
@@ -936,7 +1018,7 @@ export function OpenFilesPanel() {
   const syncFileTreeWithTabs = useEditorStore(s => s.syncFileTreeWithTabs)
 
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState<'name' | 'date'>('date')
+  const [sortBy, setSortBy] = useState<SortMode>('updatedAt')
 
   // Keep file tree synced (wiki nodes depend on this)
   useEffect(() => {
@@ -954,15 +1036,7 @@ export function OpenFilesPanel() {
           placeholder="검색..."
           className="flex-1 min-w-0 bg-bg-secondary border border-border rounded px-2 py-0.5 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent/50"
         />
-        <button
-          onClick={() => setSortBy(s => s === 'name' ? 'date' : 'name')}
-          className="shrink-0 p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
-          title={sortBy === 'name' ? '날짜순' : '이름순'}
-        >
-          {sortBy === 'name'
-            ? <ArrowDownAZ className="w-3.5 h-3.5" />
-            : <ArrowDownWideNarrow className="w-3.5 h-3.5" />}
-        </button>
+        <SortDropdown sortBy={sortBy} onChange={setSortBy} />
       </div>
 
       {/* Integrated content view */}

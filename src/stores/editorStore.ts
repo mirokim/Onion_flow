@@ -46,9 +46,8 @@ export const MIN_PANEL_WIDTH = 200
 export const MAX_PANEL_WIDTH = 1200
 
 // Per-type minimum widths (overrides MIN_PANEL_WIDTH)
-const MIN_PANEL_TYPE_WIDTHS: Partial<Record<PanelTab, number>> = {
-  wiki: 600,
-}
+// Note: all layout panels use the global MIN_PANEL_WIDTH (200px) as minimum
+const MIN_PANEL_TYPE_WIDTHS: Partial<Record<PanelTab, number>> = {}
 
 function defaultWidthForTab(tab: PanelTab): number {
   return DEFAULT_PANEL_WIDTHS[tab] ?? 500

@@ -169,10 +169,10 @@ describe('editorStore', () => {
       expect(group?.width).toBe(1200)
     })
 
-    it('should clamp wiki width to per-type minimum (600)', () => {
-      useEditorStore.getState().setGroupWidth('test-wiki', 200)
+    it('should clamp wiki width to global minimum (200)', () => {
+      useEditorStore.getState().setGroupWidth('test-wiki', 50)
       const group = useEditorStore.getState().panelGroups.find(g => g.id === 'test-wiki')
-      expect(group?.width).toBe(600)
+      expect(group?.width).toBe(200)
     })
   })
 

@@ -2,18 +2,15 @@ import { Fragment, useCallback, useMemo, useRef, useState } from 'react'
 import { useEditorStore, type PanelTab, type PanelGroup, minWidthForGroup } from '@/stores/editorStore'
 
 /** Compute which group should be the flex group from raw panelGroups.
- *  Extracted as a pure function so handlePanelResize can use fresh store state
- *  without depending on a stale flexGroupId closure. */
+ *  The FIRST layout group is always flex — it fills the space between openfiles
+ *  and any fixed-width panels on the right.  This way shrinking openfiles
+ *  automatically widens the primary (leftmost) panel, and dragging the
+ *  canvas/editor handle explicitly sets the right panel's fixed width. */
 function computeFlexGroupId(groups: PanelGroup[]): string | null {
   const layout = groups
     .map(g => ({ ...g, tabs: g.tabs.filter(t => LAYOUT_PANELS.has(t)) }))
     .filter(g => g.tabs.length > 0)
-  if (layout.length <= 1) return layout[0]?.id ?? null
-  const editorGroup = layout.find(g => g.tabs.includes('editor'))
-  if (editorGroup) return editorGroup.id
-  const neutralGroup = layout.find(g => !g.tabs.includes('wiki') && !g.tabs.includes('canvas'))
-  if (neutralGroup) return neutralGroup.id
-  return layout[layout.length - 1]?.id ?? null
+  return layout[0]?.id ?? null
 }
 import { useTranslation } from 'react-i18next'
 import type { PanelDragHandlers } from '@/components/layout/PanelTabBar'
@@ -26,7 +23,6 @@ import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { MultiTabCanvas } from '@/components/canvas/MultiTabCanvas'
 import { MultiTabEditor } from '@/components/editor/MultiTabEditor'
 import { BlockEditor } from '@/components/editor/BlockEditor'
-import { WikiPanel } from '@/components/wiki/WikiPanel'
 import { ChapterPanel } from '@/components/chapters/ChapterPanel'
 import { AIPanel } from '@/components/ai/AIPanel'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
@@ -38,7 +34,7 @@ const MIN_OPENFILES_WIDTH = 144
 const MAX_OPENFILES_WIDTH = 480
 
 /** Panels that participate in the dynamic layout (excludes openfiles and chapters) */
-const LAYOUT_PANELS = new Set<PanelTab>(['canvas', 'editor', 'wiki', 'ai'])
+const LAYOUT_PANELS = new Set<PanelTab>(['canvas', 'editor', 'ai'])
 
 function PanelContent({ tab, panelDragHandlers, isGrouped }: {
   tab: PanelTab
@@ -50,8 +46,6 @@ function PanelContent({ tab, panelDragHandlers, isGrouped }: {
       return <MultiTabCanvas panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
     case 'editor':
       return <MultiTabEditor panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
-    case 'wiki':
-      return <WikiPanel panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
     case 'chapters':
       return <ChapterPanel panelDragHandlers={panelDragHandlers} isGrouped={isGrouped} />
     case 'ai':
