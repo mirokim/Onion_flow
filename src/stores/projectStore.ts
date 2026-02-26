@@ -40,6 +40,7 @@ interface ProjectState {
   undoDeleteChapter: () => Promise<boolean>
   reorderChapter: (id: string, newOrder: number) => Promise<void>
   moveChapter: (id: string, newParentId: string | null) => Promise<void>
+  mergeChapters: (targetId: string, sourceIds: string[]) => Promise<void>
   moveChapterToPosition: (id: string, targetParentId: string | null, targetOrder: number) => Promise<void>
   insertChapterAt: (title: string, parentId: string | null, order: number, type?: 'volume' | 'chapter') => Promise<Chapter>
   toggleExpanded: (id: string) => void
@@ -240,6 +241,66 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await adapter.insertChapter(copy)
     set(s => ({ chapters: [...s.chapters, copy] }))
     return copy
+  },
+
+  mergeChapters: async (targetId: string, sourceIds: string[]) => {
+    const adapter = getAdapter()
+    const { chapters } = get()
+    const target = chapters.find(c => c.id === targetId)
+    if (!target) return
+
+    // Sort sources by order so content is appended in document order
+    const sources = sourceIds
+      .map(id => chapters.find(c => c.id === id))
+      .filter((c): c is Chapter => !!c)
+      .sort((a, b) => a.order - b.order)
+    if (sources.length === 0) return
+
+    // Build merged content: target content + (hr + source content) for each source
+    const targetContent = target.content?.content || []
+    const merged: any[] = [...targetContent]
+    for (const src of sources) {
+      if (src.content?.content?.length) {
+        merged.push({ type: 'horizontalRule' })
+        merged.push(...src.content.content)
+      }
+    }
+    const mergedDoc: JSONContent = { type: 'doc', content: merged }
+
+    // Recalculate word count
+    const { getTextFromContent } = await import('@/lib/utils')
+    const plainText = getTextFromContent(mergedDoc)
+    const wordCount = plainText.replace(/\s/g, '').length
+
+    // Update target chapter
+    const ts = nowUTC()
+    await adapter.updateChapter(targetId, { content: mergedDoc, wordCount, updatedAt: ts })
+
+    // Save sources to undo stack then delete them
+    for (const src of sources) {
+      const children = chapters.filter(c => c.parentId === src.id)
+      set(s => ({
+        deletedChapterStack: [
+          { chapter: src, children, deletedAt: ts },
+          ...s.deletedChapterStack,
+        ].slice(0, 5),
+      }))
+      await adapter.deleteChapter(src.id)
+      for (const child of children) {
+        await adapter.deleteChapter(child.id)
+      }
+    }
+
+    // Update state
+    const deletedIds = new Set(sources.flatMap(s => [s.id, ...chapters.filter(c => c.parentId === s.id).map(c => c.id)]))
+    set(s => ({
+      chapters: s.chapters
+        .filter(c => !deletedIds.has(c.id))
+        .map(c => c.id === targetId ? { ...c, content: mergedDoc, wordCount, updatedAt: ts } : c),
+      currentChapter: s.currentChapter?.id === targetId
+        ? { ...s.currentChapter, content: mergedDoc, wordCount, updatedAt: ts }
+        : s.currentChapter,
+    }))
   },
 
   deleteChapter: async (id: string) => {

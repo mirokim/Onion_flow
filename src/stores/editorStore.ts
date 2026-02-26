@@ -107,6 +107,7 @@ interface EditorState {
   fileTreeNodes: Record<string, FileTreeNode>
   fileTreeRoots: string[]
   fileTreeSortBy: 'name' | 'date'
+  selectedFileNodeIds: string[]
 
   // Keyboard shortcut customization
   customKeybindings: Record<string, string>
@@ -170,6 +171,8 @@ interface EditorState {
   collapseAllFolders: () => void
   setFileTreeSortBy: (sortBy: 'name' | 'date') => void
   syncFileTreeWithTabs: () => void
+  toggleSelectFileNode: (nodeId: string) => void
+  clearFileSelection: () => void
 }
 
 export const useEditorStore = create<EditorState>()(
@@ -198,6 +201,7 @@ export const useEditorStore = create<EditorState>()(
       fileTreeNodes: {},
       fileTreeRoots: [],
       fileTreeSortBy: 'name' as const,
+      selectedFileNodeIds: [],
 
       customKeybindings: {},
       setKeybinding: (id, keys) => set((s) => ({
@@ -618,6 +622,16 @@ export const useEditorStore = create<EditorState>()(
       }),
 
       setFileTreeSortBy: (sortBy) => set({ fileTreeSortBy: sortBy }),
+
+      toggleSelectFileNode: (nodeId) => set(s => {
+        const idx = s.selectedFileNodeIds.indexOf(nodeId)
+        return {
+          selectedFileNodeIds: idx >= 0
+            ? s.selectedFileNodeIds.filter(id => id !== nodeId)
+            : [...s.selectedFileNodeIds, nodeId],
+        }
+      }),
+      clearFileSelection: () => set({ selectedFileNodeIds: [] }),
 
       syncFileTreeWithTabs: () => {
         const s = get()

@@ -16,12 +16,13 @@ import {
   Folder, FolderOpen, LayoutGrid, FileText, Plus,
   ChevronRight, ChevronDown, Trash2,
   ExternalLink, AppWindow, Copy, Download, Edit3, BookOpen,
-  ArrowDownWideNarrow,
+  ArrowDownWideNarrow, Merge, History,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createPortal } from 'react-dom'
 import { downloadTextFile, downloadJsonFile, extractPlainText } from '@/export/exportUtils'
 import { toast } from '@/components/common/Toast'
+import { VersionHistoryModal } from '@/components/version/VersionHistoryModal'
 
 /* ── types ── */
 
@@ -29,6 +30,20 @@ interface ContextMenuState {
   x: number
   y: number
   nodeId: string
+}
+
+interface ListContextMenuState {
+  x: number
+  y: number
+  itemType: 'chapter' | 'wiki'
+  itemId: string
+  itemTitle: string
+}
+
+interface VersionHistoryState {
+  entityType: string
+  entityId: string
+  entityTitle: string
 }
 
 type SortMode = 'name' | 'createdAt' | 'updatedAt'
@@ -101,6 +116,9 @@ function FileTreeNodeComponent({
   const editorTabs = useEditorStore(s => s.editorTabs)
 
   const deleteChapter = useProjectStore(s => s.deleteChapter)
+  const isSelected = useEditorStore(s => s.selectedFileNodeIds.includes(nodeId))
+  const toggleSelectFileNode = useEditorStore(s => s.toggleSelectFileNode)
+  const clearFileSelection = useEditorStore(s => s.clearFileSelection)
 
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
@@ -139,10 +157,19 @@ function FileTreeNodeComponent({
     [node.children, fileTreeNodes, sortBy],
   )
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
     if (isGroupNode) {
       toggleFileTreeNodeExpanded(nodeId)
-    } else if (node.type === 'canvas' && node.targetId) {
+      return
+    }
+    // Ctrl/Cmd+Click: toggle multi-select (chapter only)
+    if ((e.ctrlKey || e.metaKey) && node.type === 'chapter') {
+      toggleSelectFileNode(nodeId)
+      return
+    }
+    // Normal click: clear selection and open
+    clearFileSelection()
+    if (node.type === 'canvas' && node.targetId) {
       setActiveCanvasTab(node.targetId)
       if (!openTabs.includes('canvas')) toggleTab('canvas')
       else activatePanel('canvas')
@@ -162,6 +189,11 @@ function FileTreeNodeComponent({
     if (isGroupNode) return
     e.preventDefault()
     e.stopPropagation()
+    // If this node is not in current selection, clear selection and select only this
+    const sel = useEditorStore.getState().selectedFileNodeIds
+    if (sel.length > 0 && !sel.includes(nodeId)) {
+      clearFileSelection()
+    }
     onContextMenu({ x: e.clientX, y: e.clientY, nodeId })
   }
 
@@ -245,6 +277,7 @@ function FileTreeNodeComponent({
         onDrop={handleDrop}
         className={cn(
           'group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors text-xs',
+          isSelected ? 'bg-accent/15 text-text-primary' :
           isActive ? 'bg-bg-hover/60 text-text-primary' : 'hover:bg-bg-hover text-text-primary',
           !isTargetOpen && node.type !== 'folder' && node.type !== 'volume' && 'opacity-40',
           dragOverState === 'above' && 'border-t-2 border-accent',
@@ -339,10 +372,12 @@ function FileTreeContextMenu({
   menu,
   onClose,
   onRename,
+  onOpenVersionHistory,
 }: {
   menu: ContextMenuState
   onClose: () => void
   onRename: (nodeId: string) => void
+  onOpenVersionHistory: (entityType: string, entityId: string, title: string) => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const node = useEditorStore(s => s.fileTreeNodes[menu.nodeId])
@@ -357,10 +392,14 @@ function FileTreeContextMenu({
   const toggleTab = useEditorStore(s => s.toggleTab)
   const splitTabToNewGroup = useEditorStore(s => s.splitTabToNewGroup)
   const canvasTabs = useEditorStore(s => s.canvasTabs)
+  const selectedFileNodeIds = useEditorStore(s => s.selectedFileNodeIds)
+  const fileTreeNodes = useEditorStore(s => s.fileTreeNodes)
+  const clearFileSelection = useEditorStore(s => s.clearFileSelection)
 
   const chapters = useProjectStore(s => s.chapters)
   const deleteChapter = useProjectStore(s => s.deleteChapter)
   const duplicateChapter = useProjectStore(s => s.duplicateChapter)
+  const mergeChapters = useProjectStore(s => s.mergeChapters)
   const selectChapter = useProjectStore(s => s.selectChapter)
 
   const exportCanvas = useCanvasStore(s => s.exportCanvas)
@@ -396,6 +435,52 @@ function FileTreeContextMenu({
 
   const isCanvas = node.type === 'canvas'
   const isWiki = node.type === 'wiki'
+  const isChapter = node.type === 'chapter'
+
+  // Multi-select: collect all selected chapter node IDs (include the right-clicked node)
+  const allSelectedIds = selectedFileNodeIds.length > 0
+    ? (selectedFileNodeIds.includes(menu.nodeId) ? selectedFileNodeIds : [menu.nodeId])
+    : [menu.nodeId]
+  const selectedChapterNodeIds = allSelectedIds.filter(id => fileTreeNodes[id]?.type === 'chapter')
+  const isMultiChapterSelect = selectedChapterNodeIds.length >= 2
+
+  const handleMerge = async () => {
+    // Get target IDs from file tree nodes
+    const targetIds = selectedChapterNodeIds
+      .map(id => fileTreeNodes[id]?.targetId)
+      .filter((id): id is string => !!id)
+    if (targetIds.length < 2) return
+
+    // Sort by chapter order, merge into first
+    const sorted = targetIds
+      .map(id => chapters.find(c => c.id === id))
+      .filter((c): c is NonNullable<typeof c> => !!c)
+      .sort((a, b) => a.order - b.order)
+    if (sorted.length < 2) return
+
+    const targetId = sorted[0].id
+    const sourceIds = sorted.slice(1).map(c => c.id)
+    await mergeChapters(targetId, sourceIds)
+
+    // Remove merged source nodes from file tree
+    for (const nid of selectedChapterNodeIds) {
+      const ftNode = fileTreeNodes[nid]
+      if (ftNode?.targetId && sourceIds.includes(ftNode.targetId)) {
+        useEditorStore.getState().removeFileTreeNode(nid)
+      }
+    }
+
+    clearFileSelection()
+    toast.success(`${sorted.length}개의 챕터가 합쳐졌습니다.`)
+    onClose()
+  }
+
+  const handleVersionHistory = () => {
+    if (!node.targetId) return
+    const entityType = isWiki ? 'character' : 'chapter'  // wiki can be various types
+    onOpenVersionHistory(entityType, node.targetId, node.name)
+    onClose()
+  }
 
   const handleOpenInNewTab = () => {
     if (isCanvas && node.targetId) {
@@ -522,6 +607,18 @@ function FileTreeContextMenu({
         <Download className="w-3.5 h-3.5 text-text-muted shrink-0" />
         <span>내보내기</span>
       </button>
+      {isMultiChapterSelect && (
+        <button onClick={handleMerge} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+          <Merge className="w-3.5 h-3.5 text-text-muted shrink-0" />
+          <span>합치기 ({selectedChapterNodeIds.length})</span>
+        </button>
+      )}
+      {(isChapter || isWiki) && !isMultiChapterSelect && (
+        <button onClick={handleVersionHistory} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+          <History className="w-3.5 h-3.5 text-text-muted shrink-0" />
+          <span>버전 내역</span>
+        </button>
+      )}
 
       <div className="h-px bg-border mx-2 my-1" />
 
@@ -684,9 +781,11 @@ const CATEGORY_LABEL_MAP = Object.fromEntries(
 function WikiGroupSection({
   group,
   onOpenEntry,
+  onEntryContextMenu,
 }: {
   group: { id: string; labelKo: string; icon: React.ReactNode; entries: WikiEntry[] }
   onOpenEntry: (entry: WikiEntry) => void
+  onEntryContextMenu?: (e: React.MouseEvent, entry: WikiEntry) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
 
@@ -710,6 +809,7 @@ function WikiGroupSection({
           <div
             key={entry.id}
             onClick={() => onOpenEntry(entry)}
+            onContextMenu={(e) => onEntryContextMenu?.(e, entry)}
             className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition"
             style={{ paddingLeft: '28px' }}
           >
@@ -732,11 +832,17 @@ function VolumeGroup({
   volume,
   chapters,
   onOpenChapter,
+  onChapterClick,
+  onChapterContextMenu,
+  selectedChapterIds,
   onAddChapter,
 }: {
   volume: ChapterItem
   chapters: ChapterItem[]
   onOpenChapter: (ch: ChapterItem) => void
+  onChapterClick?: (e: React.MouseEvent, ch: ChapterItem) => void
+  onChapterContextMenu?: (e: React.MouseEvent, ch: ChapterItem) => void
+  selectedChapterIds?: string[]
   onAddChapter?: () => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -768,8 +874,12 @@ function VolumeGroup({
       {!collapsed && chapters.map(ch => (
         <div
           key={ch.id}
-          onClick={() => onOpenChapter(ch)}
-          className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition"
+          onClick={(e) => onChapterClick ? onChapterClick(e, ch) : onOpenChapter(ch)}
+          onContextMenu={(e) => onChapterContextMenu?.(e, ch)}
+          className={cn(
+            'flex items-center gap-1.5 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition',
+            selectedChapterIds?.includes(ch.id) && 'bg-accent/15',
+          )}
           style={{ paddingLeft: '28px' }}
         >
           <FileText className="w-3 h-3 shrink-0 text-text-muted" />
@@ -780,6 +890,190 @@ function VolumeGroup({
   )
 }
 
+/* ── ListContextMenu (WikiListView용 우클릭 메뉴) ── */
+
+function ListContextMenu({
+  menu,
+  onClose,
+  onOpenVersionHistory,
+}: {
+  menu: ListContextMenuState
+  onClose: () => void
+  onOpenVersionHistory: (entityType: string, entityId: string, title: string) => void
+}) {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const chapters = useProjectStore(s => s.chapters)
+  const deleteChapter = useProjectStore(s => s.deleteChapter)
+  const duplicateChapter = useProjectStore(s => s.duplicateChapter)
+  const mergeChapters = useProjectStore(s => s.mergeChapters)
+  const selectChapter = useProjectStore(s => s.selectChapter)
+  const selectedChapterIds = useEditorStore(s => s.selectedFileNodeIds)
+  const clearFileSelection = useEditorStore(s => s.clearFileSelection)
+  const exportCanvas = useCanvasStore(s => s.exportCanvas)
+
+  const isChapter = menu.itemType === 'chapter'
+  const isWiki = menu.itemType === 'wiki'
+
+  // Multi-select: include clicked item + all selected items (chapter only)
+  const allMergeIds = isChapter
+    ? Array.from(new Set([menu.itemId, ...selectedChapterIds]))
+    : []
+  const isMultiChapterSelect = allMergeIds.length >= 2
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) onClose()
+    }
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleEsc)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleEsc)
+    }
+  }, [onClose])
+
+  const handleOpenInNewPane = () => {
+    const s = useEditorStore.getState()
+    if (isChapter) {
+      s.openEditorTab(menu.itemId, menu.itemTitle)
+    } else {
+      s.openWikiTab(menu.itemId, menu.itemTitle)
+    }
+    if (!s.openTabs.includes('editor')) s.toggleTab('editor')
+    s.splitTabToNewGroup('editor')
+    onClose()
+  }
+
+  const handleDuplicate = async () => {
+    if (isChapter) {
+      const copy = await duplicateChapter(menu.itemId)
+      if (copy) {
+        selectChapter(copy.id)
+        toast.success('문서 복사본이 생성되었습니다.')
+      }
+    } else {
+      toast.warning('위키 항목은 복사를 지원하지 않습니다.')
+    }
+    onClose()
+  }
+
+  const handleExport = () => {
+    if (isChapter) {
+      const chapter = chapters.find(c => c.id === menu.itemId)
+      if (chapter) {
+        const text = chapter.content ? extractPlainText(chapter.content) : ''
+        downloadTextFile(text || '(빈 문서)', `${menu.itemTitle}.txt`)
+        toast.success('문서가 내보내기되었습니다.')
+      }
+    } else {
+      const entry = useWikiStore.getState().entries.find(e => e.id === menu.itemId)
+      if (entry) {
+        downloadTextFile(entry.content || '(빈 항목)', `${menu.itemTitle}.txt`)
+        toast.success('위키 항목이 내보내기되었습니다.')
+      }
+    }
+    onClose()
+  }
+
+  const handleMerge = async () => {
+    if (allMergeIds.length < 2) return
+    const sorted = allMergeIds
+      .map(id => chapters.find(c => c.id === id))
+      .filter((c): c is NonNullable<typeof c> => !!c)
+      .sort((a, b) => a.order - b.order)
+    if (sorted.length < 2) return
+    const targetId = sorted[0].id
+    const sourceIds = sorted.slice(1).map(c => c.id)
+    await mergeChapters(targetId, sourceIds)
+    clearFileSelection()
+    toast.success(`${sorted.length}개의 챕터가 합쳐졌습니다.`)
+    onClose()
+  }
+
+  const handleVersionHistory = () => {
+    const entityType = isChapter ? 'chapter' : 'character'
+    onOpenVersionHistory(entityType, menu.itemId, menu.itemTitle)
+    onClose()
+  }
+
+  const handleRename = () => {
+    if (isChapter) {
+      // Trigger inline rename not easily possible here; open in editor instead
+      const s = useEditorStore.getState()
+      s.openEditorTab(menu.itemId, menu.itemTitle)
+      if (!s.openTabs.includes('editor')) s.toggleTab('editor')
+      else s.activatePanel('editor')
+    }
+    onClose()
+  }
+
+  const handleDelete = async () => {
+    if (isChapter) {
+      const tab = useEditorStore.getState().editorTabs.find(t => t.targetId === menu.itemId)
+      if (tab) useEditorStore.getState().closeEditorTab(tab.id)
+      await deleteChapter(menu.itemId)
+      toast.success('문서가 삭제되었습니다.')
+    } else {
+      const tab = useEditorStore.getState().editorTabs.find(t => t.type === 'wiki' && t.targetId === menu.itemId)
+      if (tab) useEditorStore.getState().closeEditorTab(tab.id)
+      await useWikiStore.getState().deleteEntry(menu.itemId)
+      toast.success('위키 항목이 삭제되었습니다.')
+    }
+    onClose()
+  }
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 9999 }}
+      className="min-w-[160px] bg-bg-surface border border-border rounded-lg shadow-xl overflow-hidden py-1"
+    >
+      <button onClick={handleOpenInNewPane} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+        <AppWindow className="w-3.5 h-3.5 text-text-muted shrink-0" />
+        <span>새 창에서 열기</span>
+      </button>
+
+      <div className="h-px bg-border mx-2 my-1" />
+
+      <button onClick={handleDuplicate} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+        <Copy className="w-3.5 h-3.5 text-text-muted shrink-0" />
+        <span>복사본 생성</span>
+      </button>
+      <button onClick={handleExport} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+        <Download className="w-3.5 h-3.5 text-text-muted shrink-0" />
+        <span>내보내기</span>
+      </button>
+      {isMultiChapterSelect && (
+        <button onClick={handleMerge} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+          <Merge className="w-3.5 h-3.5 text-text-muted shrink-0" />
+          <span>합치기 ({allMergeIds.length})</span>
+        </button>
+      )}
+      {!isMultiChapterSelect && (
+        <button onClick={handleVersionHistory} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+          <History className="w-3.5 h-3.5 text-text-muted shrink-0" />
+          <span>버전 내역</span>
+        </button>
+      )}
+
+      <div className="h-px bg-border mx-2 my-1" />
+
+      {isChapter && (
+        <button onClick={handleRename} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-primary hover:bg-bg-hover transition text-left">
+          <Edit3 className="w-3.5 h-3.5 text-text-muted shrink-0" />
+          <span>이름변경</span>
+        </button>
+      )}
+      <button onClick={handleDelete} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-bg-hover transition text-left">
+        <Trash2 className="w-3.5 h-3.5 shrink-0" />
+        <span>삭제</span>
+      </button>
+    </div>,
+    document.body,
+  )
+}
+
 /* ── BonbunSection ── */
 
 function BonbunSection({
@@ -787,6 +1081,9 @@ function BonbunSection({
   volumeChildMap,
   orphanChapters,
   onOpenChapter,
+  onChapterClick,
+  onChapterContextMenu,
+  selectedChapterIds,
   onAddVolume,
   onAddOrphanChapter,
   onAddChapterToVolume,
@@ -795,6 +1092,9 @@ function BonbunSection({
   volumeChildMap: Map<string | null, ChapterItem[]>
   orphanChapters: ChapterItem[]
   onOpenChapter: (ch: ChapterItem) => void
+  onChapterClick?: (e: React.MouseEvent, ch: ChapterItem) => void
+  onChapterContextMenu?: (e: React.MouseEvent, ch: ChapterItem) => void
+  selectedChapterIds?: string[]
   onAddVolume: () => void
   onAddOrphanChapter: () => void
   onAddChapterToVolume: (volumeId: string) => void
@@ -826,14 +1126,21 @@ function BonbunSection({
               volume={vol}
               chapters={volumeChildMap.get(vol.id) ?? []}
               onOpenChapter={onOpenChapter}
+              onChapterClick={onChapterClick}
+              onChapterContextMenu={onChapterContextMenu}
+              selectedChapterIds={selectedChapterIds}
               onAddChapter={() => onAddChapterToVolume(vol.id)}
             />
           ))}
           {orphanChapters.map(ch => (
             <div
               key={ch.id}
-              onClick={() => onOpenChapter(ch)}
-              className="flex items-center gap-1.5 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition"
+              onClick={(e) => onChapterClick ? onChapterClick(e, ch) : onOpenChapter(ch)}
+              onContextMenu={(e) => onChapterContextMenu?.(e, ch)}
+              className={cn(
+                'flex items-center gap-1.5 py-1 cursor-pointer hover:bg-bg-hover text-xs text-text-primary transition',
+                selectedChapterIds?.includes(ch.id) && 'bg-accent/15',
+              )}
               style={{ paddingLeft: '20px' }}
             >
               <FileText className="w-3 h-3 shrink-0 text-text-muted" />
@@ -979,6 +1286,39 @@ function WikiListView({ search, sortBy }: { search: string; sortBy: SortMode }) 
 
   const noResults = !!q && !showBonbun && grouped.length === 0
 
+  // ── Context menu & version history modal state ──
+  const [listMenu, setListMenu] = useState<ListContextMenuState | null>(null)
+  const [versionHistory, setVersionHistory] = useState<VersionHistoryState | null>(null)
+  const selectedChapterIds = useEditorStore(s => s.selectedFileNodeIds)
+  const toggleSelectFileNode = useEditorStore(s => s.toggleSelectFileNode)
+  const clearFileSelection = useEditorStore(s => s.clearFileSelection)
+
+  const handleChapterContextMenu = useCallback((e: React.MouseEvent, ch: ChapterItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setListMenu({ x: e.clientX, y: e.clientY, itemType: 'chapter', itemId: ch.id, itemTitle: ch.title || '제목 없음' })
+  }, [])
+
+  const handleEntryContextMenu = useCallback((e: React.MouseEvent, entry: WikiEntry) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setListMenu({ x: e.clientX, y: e.clientY, itemType: 'wiki', itemId: entry.id, itemTitle: entry.title || '제목 없음' })
+  }, [])
+
+  const handleChapterClick = useCallback((e: React.MouseEvent, ch: ChapterItem) => {
+    // Ctrl/Cmd+Click: toggle multi-select for merge
+    if (e.ctrlKey || e.metaKey) {
+      toggleSelectFileNode(ch.id)
+      return
+    }
+    clearFileSelection()
+    handleOpenChapter(ch)
+  }, [handleOpenChapter, toggleSelectFileNode, clearFileSelection])
+
+  const handleOpenVersionHistory = useCallback((entityType: string, entityId: string, title: string) => {
+    setVersionHistory({ entityType, entityId, entityTitle: title })
+  }, [])
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
@@ -993,6 +1333,9 @@ function WikiListView({ search, sortBy }: { search: string; sortBy: SortMode }) 
                 volumeChildMap={volumeChildMap}
                 orphanChapters={orphanChapters}
                 onOpenChapter={handleOpenChapter}
+                onChapterClick={handleChapterClick}
+                onChapterContextMenu={handleChapterContextMenu}
+                selectedChapterIds={selectedChapterIds}
                 onAddVolume={handleAddVolume}
                 onAddOrphanChapter={handleAddOrphanChapter}
                 onAddChapterToVolume={handleAddChapterToVolume}
@@ -1001,11 +1344,30 @@ function WikiListView({ search, sortBy }: { search: string; sortBy: SortMode }) 
 
             {/* 위키 categories */}
             {grouped.map(g => (
-              <WikiGroupSection key={g.id} group={g} onOpenEntry={handleOpenEntry} />
+              <WikiGroupSection key={g.id} group={g} onOpenEntry={handleOpenEntry} onEntryContextMenu={handleEntryContextMenu} />
             ))}
           </>
         )}
       </div>
+
+      {/* Context menu */}
+      {listMenu && (
+        <ListContextMenu
+          menu={listMenu}
+          onClose={() => setListMenu(null)}
+          onOpenVersionHistory={handleOpenVersionHistory}
+        />
+      )}
+
+      {/* Version history modal */}
+      {versionHistory && (
+        <VersionHistoryModal
+          entityType={versionHistory.entityType}
+          entityId={versionHistory.entityId}
+          entityTitle={versionHistory.entityTitle}
+          onClose={() => setVersionHistory(null)}
+        />
+      )}
     </div>
   )
 }
