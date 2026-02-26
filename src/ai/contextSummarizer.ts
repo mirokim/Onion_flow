@@ -4,7 +4,8 @@
  * Strategy:
  * - Recent chapters get full/higher weight
  * - Older chapters get bullet-point summaries
- * - Active hooks (unresolved foreshadows) are always preserved
+ * - Active hooks (unresolved foreshadows) are always preserved,
+ *   filtered to the current project only
  */
 import type { Chapter } from '@/types'
 import { useWorldStore } from '@/stores/worldStore'
@@ -15,8 +16,11 @@ const MAX_OLDER_CHAPTERS = 10
 
 /**
  * Build a compressed summary of all chapters for AI context.
+ *
+ * @param chapters - Chapters already filtered to the current project.
+ * @param projectId - Used to filter foreshadows to the current project only.
  */
-export function summarizeContext(chapters: Chapter[]): string {
+export function summarizeContext(chapters: Chapter[], projectId: string): string {
   if (chapters.length === 0) return ''
 
   const sorted = [...chapters].sort((a, b) => a.order - b.order)
@@ -50,9 +54,11 @@ export function summarizeContext(chapters: Chapter[]): string {
     }
   }
 
-  // Active hooks (unresolved foreshadows)
+  // Active hooks: only foreshadows belonging to this project
   const foreshadows = useWorldStore.getState().foreshadows
-  const activeHooks = foreshadows.filter(f => f.status === 'planted' || f.status === 'hinted')
+  const activeHooks = foreshadows.filter(
+    f => f.projectId === projectId && (f.status === 'planted' || f.status === 'hinted')
+  )
   if (activeHooks.length > 0) {
     parts.push('### 미회수 복선')
     for (const hook of activeHooks) {

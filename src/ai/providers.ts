@@ -162,6 +162,23 @@ async function assertOkResponse(res: Response, provider: string): Promise<void> 
   throw new Error(message)
 }
 
+/**
+ * Safely parse tool call arguments JSON.
+ * Returns an empty object instead of throwing on malformed input,
+ * or when the parsed value is not a plain object (null, array, primitive).
+ */
+export function safeParseArgs(json: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(json)
+    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+    return {}
+  } catch {
+    return {}
+  }
+}
+
 export async function callWithTools(
   config: AIConfig,
   messages: ApiMessage[],
@@ -215,6 +232,7 @@ async function callOpenAI(config: AIConfig, messages: ApiMessage[], useTools: bo
     body: JSON.stringify(body),
     signal,
   })
+  await assertOkResponse(res, 'openai')
   const data = await res.json() as OpenAIResponse
   if (data.error) throw new Error(data.error.message)
 
@@ -224,7 +242,7 @@ async function callOpenAI(config: AIConfig, messages: ApiMessage[], useTools: bo
     const toolCalls: AIToolCall[] = msg.tool_calls.map(tc => ({
       id: tc.id,
       name: tc.function.name,
-      arguments: JSON.parse(tc.function.arguments),
+      arguments: safeParseArgs(tc.function.arguments),
     }))
     return { content: msg.content || '', toolCalls, stopReason: 'tool_use' }
   }
@@ -252,7 +270,8 @@ async function callAnthropic(config: AIConfig, messages: ApiMessage[], useTools:
     ? [{ type: 'text', text: systemContent, cache_control: { type: 'ephemeral' } }]
     : systemContent
 
-  // Claude 3.0 models (haiku/sonnet/opus) support max 4096 output tokens
+  // Claude 3.0 originals (claude-3-haiku-*, claude-3-sonnet-*, claude-3-opus-*) are capped
+  // at 4096 output tokens. Claude 3.5+, Claude 4+ models support 8192.
   const maxTokens = /^claude-3-(haiku|sonnet|opus)-\d/.test(config.model) ? 4096 : 8192
 
   const body: Record<string, unknown> = {
@@ -432,6 +451,7 @@ async function callGrok(config: AIConfig, messages: ApiMessage[], useTools: bool
     body: JSON.stringify(body),
     signal,
   })
+  await assertOkResponse(res, 'grok')
   const data = await res.json() as OpenAIResponse
   if (data.error) throw new Error(data.error.message)
 
@@ -441,7 +461,7 @@ async function callGrok(config: AIConfig, messages: ApiMessage[], useTools: bool
     const toolCalls: AIToolCall[] = msg.tool_calls.map(tc => ({
       id: tc.id,
       name: tc.function.name,
-      arguments: JSON.parse(tc.function.arguments),
+      arguments: safeParseArgs(tc.function.arguments),
     }))
     return { content: msg.content || '', toolCalls, stopReason: 'tool_use' }
   }

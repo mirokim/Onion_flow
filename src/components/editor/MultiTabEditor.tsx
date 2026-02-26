@@ -1,12 +1,15 @@
 /**
  * MultiTabEditor — Obsidian-style multi-tab wrapper around BlockEditor.
- * Shows a tab bar at the top. Each tab represents an open chapter.
+ * Shows a tab bar at the top. Each tab represents an open chapter or wiki entry.
+ * When the active tab is a wiki tab, renders WikiEntryEditor instead of BlockEditor.
  */
 import { useEffect } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
 import { useProjectStore } from '@/stores/projectStore'
+import { useWikiStore } from '@/stores/wikiStore'
 import { PanelTabBar, type PanelDragHandlers } from '@/components/layout/PanelTabBar'
 import { BlockEditor } from './BlockEditor'
+import { WikiEntryEditor } from '@/components/wiki/WikiEntryEditor'
 
 interface MultiTabEditorProps {
   panelDragHandlers?: PanelDragHandlers
@@ -26,6 +29,12 @@ export function MultiTabEditor({ panelDragHandlers, isGrouped }: MultiTabEditorP
   const selectChapter = useProjectStore(s => s.selectChapter)
   const chapters = useProjectStore(s => s.chapters)
 
+  // Wiki tab support
+  const wikiEntries = useWikiStore(s => s.entries)
+  const activeTab = editorTabs.find(t => t.id === activeEditorTabId)
+  const isWikiTab = activeTab?.type === 'wiki'
+  const activeWikiEntry = isWikiTab ? wikiEntries.find(e => e.id === activeTab!.targetId) : null
+
   // Auto-open a tab when a chapter is selected externally
   useEffect(() => {
     if (!currentChapter) return
@@ -37,11 +46,11 @@ export function MultiTabEditor({ panelDragHandlers, isGrouped }: MultiTabEditorP
     }
   }, [currentChapter?.id])
 
-  // When active tab changes, sync to projectStore
+  // When active chapter tab changes, sync to projectStore (wiki tabs are not chapters)
   useEffect(() => {
     if (!activeEditorTabId) return
     const tab = editorTabs.find(t => t.id === activeEditorTabId)
-    if (tab && tab.targetId !== currentChapter?.id) {
+    if (tab?.type === 'chapter' && tab.targetId !== currentChapter?.id) {
       selectChapter(tab.targetId)
     }
   }, [activeEditorTabId])
@@ -49,6 +58,7 @@ export function MultiTabEditor({ panelDragHandlers, isGrouped }: MultiTabEditorP
   // Update tab labels when chapter titles change
   useEffect(() => {
     const updatedTabs = editorTabs.map(tab => {
+      if (tab.type !== 'chapter') return tab
       const ch = chapters.find(c => c.id === tab.targetId)
       if (ch && ch.title !== tab.label) {
         return { ...tab, label: ch.title }
@@ -60,6 +70,32 @@ export function MultiTabEditor({ panelDragHandlers, isGrouped }: MultiTabEditorP
       useEditorStore.setState({ editorTabs: updatedTabs })
     }
   }, [chapters])
+
+  // Update wiki tab labels when entry titles change
+  useEffect(() => {
+    const entryMap = new Map(wikiEntries.map(e => [e.id, e]))
+    const updatedTabs = editorTabs.map(tab => {
+      if (tab.type !== 'wiki') return tab
+      const entry = entryMap.get(tab.targetId)
+      if (entry && entry.title && entry.title !== tab.label) {
+        return { ...tab, label: entry.title }
+      }
+      return tab
+    })
+    const changed = updatedTabs.some((t, i) => t.label !== editorTabs[i].label)
+    if (changed) {
+      useEditorStore.setState({ editorTabs: updatedTabs })
+    }
+  }, [wikiEntries])
+
+  // Auto-close wiki tabs when their entry is deleted
+  useEffect(() => {
+    const entryIds = new Set(wikiEntries.map(e => e.id))
+    const orphanedTabs = editorTabs.filter(t => t.type === 'wiki' && !entryIds.has(t.targetId))
+    for (const tab of orphanedTabs) {
+      closeEditorTab(tab.id)
+    }
+  }, [wikiEntries.length])
 
   const createChapter = useProjectStore(s => s.createChapter)
   const currentProject = useProjectStore(s => s.currentProject)
@@ -87,7 +123,8 @@ export function MultiTabEditor({ panelDragHandlers, isGrouped }: MultiTabEditorP
           onSelect={(tabId) => {
             setActiveEditorTab(tabId)
             const tab = editorTabs.find(t => t.id === tabId)
-            if (tab) selectChapter(tab.targetId)
+            // Only sync chapter selection (not wiki tabs)
+            if (tab?.type === 'chapter') selectChapter(tab.targetId)
           }}
           onClose={closeEditorTab}
           onAdd={currentProject ? handleAddTab : undefined}
@@ -112,7 +149,23 @@ export function MultiTabEditor({ panelDragHandlers, isGrouped }: MultiTabEditorP
         />
       )}
       <div className="flex-1 overflow-hidden">
-        <BlockEditor />
+        {isWikiTab ? (
+          activeWikiEntry
+            ? (
+              <WikiEntryEditor
+                entry={activeWikiEntry}
+                onBack={() => activeTab && closeEditorTab(activeTab.id)}
+                panelDragHandlers={isGrouped ? panelDragHandlers : undefined}
+              />
+            )
+            : (
+              <div className="flex items-center justify-center h-full text-text-muted text-sm">
+                위키 항목을 찾을 수 없습니다
+              </div>
+            )
+        ) : (
+          <BlockEditor />
+        )}
       </div>
     </div>
   )

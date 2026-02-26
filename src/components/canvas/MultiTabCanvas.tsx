@@ -1,13 +1,16 @@
 /**
  * MultiTabCanvas — Obsidian-style multi-tab wrapper around NodeCanvas.
  * Shows a tab bar at the top. Each tab represents a different canvas view/depth.
+ * Supports two view modes: graph (node canvas) and document (linear paragraph view).
  */
 import { useEditorStore } from '@/stores/editorStore'
 import { useCanvasStore } from '@/stores/canvasStore'
 import { generateId } from '@/lib/utils'
+import { LayoutGrid, AlignLeft } from 'lucide-react'
 import { PanelTabBar, type PanelDragHandlers } from '@/components/layout/PanelTabBar'
 import { DepthBreadcrumb } from '@/components/layout/DepthBreadcrumb'
 import { NodeCanvas } from './NodeCanvas'
+import { CanvasDocumentView } from './CanvasDocumentView'
 
 interface MultiTabCanvasProps {
   panelDragHandlers?: PanelDragHandlers
@@ -25,6 +28,8 @@ export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasP
 
   const warpToDepth = useCanvasStore(s => s.warpToDepth)
   const setDepthPath = useCanvasStore(s => s.setDepthPath)
+  const viewMode = useCanvasStore(s => s.viewMode)
+  const setViewMode = useCanvasStore(s => s.setViewMode)
 
   const handleSelectTab = (tabId: string) => {
     setActiveCanvasTab(tabId)
@@ -48,6 +53,18 @@ export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasP
     setDepthPath([newTargetId])
   }
 
+  const viewToggle = (
+    <button
+      onClick={() => setViewMode(viewMode === 'graph' ? 'document' : 'graph')}
+      className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition"
+      title={viewMode === 'graph' ? '문서 뷰로 전환' : '그래프 뷰로 전환'}
+    >
+      {viewMode === 'graph'
+        ? <AlignLeft className="w-3.5 h-3.5" />
+        : <LayoutGrid className="w-3.5 h-3.5" />}
+    </button>
+  )
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {!isGrouped && (
@@ -62,6 +79,7 @@ export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasP
           canClose
           panelDragHandlers={panelDragHandlers}
           panelType="canvas"
+          actions={viewToggle}
           onRenameTab={(tabId) => {
             const tab = canvasTabs.find(t => t.id === tabId)
             if (tab) {
@@ -80,7 +98,7 @@ export function MultiTabCanvas({ panelDragHandlers, isGrouped }: MultiTabCanvasP
       )}
       <DepthBreadcrumb />
       <div className="flex-1 relative overflow-hidden min-h-0">
-        <NodeCanvas />
+        {viewMode === 'graph' ? <NodeCanvas /> : <CanvasDocumentView />}
       </div>
     </div>
   )

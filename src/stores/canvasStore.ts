@@ -17,6 +17,10 @@ interface CanvasState {
   selectedNodeId: string | null
   loading: boolean
 
+  // View mode: graph (default node canvas) or document (linear paragraph view sorted by y)
+  viewMode: 'graph' | 'document'
+  setViewMode: (mode: 'graph' | 'document') => void
+
   // Execution state
   nodeOutputs: Record<string, NodeOutput>
   isExecuting: boolean
@@ -70,6 +74,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   currentDepthPath: [],
   selectedNodeId: null,
   loading: false,
+  viewMode: 'graph',
+  setViewMode: (mode) => set({ viewMode: mode }),
   nodeOutputs: {},
   isExecuting: false,
 

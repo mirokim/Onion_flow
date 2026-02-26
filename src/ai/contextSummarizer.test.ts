@@ -1,7 +1,7 @@
 /**
  * Unit tests for contextSummarizer module.
  * Tests: summarizeContext with various chapter counts, synopsis truncation,
- *        foreshadow filtering, and importance prefixes.
+ *        foreshadow filtering (by status AND projectId), and importance prefixes.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Chapter, Foreshadow } from '@/types'
@@ -66,12 +66,12 @@ beforeEach(() => {
 
 describe('summarizeContext', () => {
   it('returns empty string for empty chapters array', () => {
-    expect(summarizeContext([])).toBe('')
+    expect(summarizeContext([], 'proj-1')).toBe('')
   })
 
   it('places a single chapter under recent section', () => {
     const chapters = [makeChapter({ order: 1, title: '1장', synopsis: '첫 번째 챕터 시놉시스' })]
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     expect(result).toContain('### 최근 챕터')
     expect(result).toContain('#### 1장')
@@ -85,7 +85,7 @@ describe('summarizeContext', () => {
       makeChapter({ order: 2, title: '2장', synopsis: '시놉시스 2' }),
       makeChapter({ order: 3, title: '3장', synopsis: '시놉시스 3' }),
     ]
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     expect(result).toContain('### 최근 챕터')
     expect(result).toContain('#### 1장')
@@ -98,7 +98,7 @@ describe('summarizeContext', () => {
     const chapters = Array.from({ length: 5 }, (_, i) =>
       makeChapter({ order: i + 1, title: `${i + 1}장`, synopsis: `시놉시스 ${i + 1}` }),
     )
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     // Older section: first 2 chapters
     expect(result).toContain('### 이전 챕터 요약')
@@ -116,7 +116,7 @@ describe('summarizeContext', () => {
     const chapters = Array.from({ length: 15 }, (_, i) =>
       makeChapter({ order: i + 1, title: `${i + 1}장`, synopsis: `시놉시스 ${i + 1}` }),
     )
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     // Older section: only the last 10 of the first 12 (i.e., chapters 3-12)
     expect(result).toContain('### 이전 챕터 요약')
@@ -143,7 +143,7 @@ describe('summarizeContext', () => {
       makeChapter({ order: 3, title: '3장', synopsis: '시놉시스' }),
       makeChapter({ order: 4, title: '4장', synopsis: '시놉시스' }),
     ]
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     // The older section should have truncated synopsis
     expect(result).toContain('- 긴 챕터: ' + 'A'.repeat(200) + '...')
@@ -156,14 +156,14 @@ describe('summarizeContext', () => {
       makeChapter({ order: 3, title: '3장', synopsis: '시놉시스' }),
       makeChapter({ order: 4, title: '4장', synopsis: '시놉시스' }),
     ]
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     // Older section: chapter 1 has no synopsis
     expect(result).toContain('- 빈 챕터: (시놉시스 없음)')
 
     // Also test a recent chapter with no synopsis
     const chaptersRecent = [makeChapter({ order: 1, title: '빈 최근', synopsis: '' })]
-    const resultRecent = summarizeContext(chaptersRecent)
+    const resultRecent = summarizeContext(chaptersRecent, 'proj-1')
     expect(resultRecent).toContain('(시놉시스 없음)')
   })
 
@@ -174,7 +174,7 @@ describe('summarizeContext', () => {
     ])
 
     const chapters = [makeChapter({ order: 1, title: '1장', synopsis: '시놉시스' })]
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     expect(result).toContain('### 미회수 복선')
     expect(result).toContain('검은 열쇠: 문 뒤의 비밀')
@@ -189,7 +189,7 @@ describe('summarizeContext', () => {
     ])
 
     const chapters = [makeChapter({ order: 1, title: '1장', synopsis: '시놉시스' })]
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     expect(result).toContain('### 미회수 복선')
     expect(result).toContain('활성 복선: 아직 활성')
@@ -206,12 +206,56 @@ describe('summarizeContext', () => {
     ])
 
     const chapters = [makeChapter({ order: 1, title: '1장', synopsis: '시놉시스' })]
-    const result = summarizeContext(chapters)
+    const result = summarizeContext(chapters, 'proj-1')
 
     expect(result).toContain('- ⚠️치명적 복선: 매우 중요')
     expect(result).toContain('- ❗높은 복선: 중요')
     // Medium and low have no prefix
     expect(result).toContain('- 보통 복선: 보통')
     expect(result).toContain('- 낮은 복선: 낮음')
+  })
+
+  // ── Bug #1 regression: foreshadows must be filtered by projectId ──
+
+  it('excludes foreshadows from other projects (Bug #1 regression)', () => {
+    setForeshadows([
+      makeForeshadow({ id: 'fs-mine', title: '내 복선', description: '이 프로젝트', status: 'planted', projectId: 'proj-1' }),
+      makeForeshadow({ id: 'fs-other', title: '타 프로젝트 복선', description: '다른 프로젝트', status: 'planted', projectId: 'proj-other' }),
+    ])
+
+    const chapters = [makeChapter({ order: 1, title: '1장', synopsis: '시놉시스', projectId: 'proj-1' })]
+    const result = summarizeContext(chapters, 'proj-1')
+
+    expect(result).toContain('내 복선')
+    expect(result).not.toContain('타 프로젝트 복선')
+  })
+
+  it('shows no foreshadow section when all active foreshadows belong to another project', () => {
+    setForeshadows([
+      makeForeshadow({ id: 'fs-other', title: '타 프로젝트 복선', status: 'planted', projectId: 'proj-other' }),
+    ])
+
+    const chapters = [makeChapter({ order: 1, title: '1장', synopsis: '시놉시스', projectId: 'proj-1' })]
+    const result = summarizeContext(chapters, 'proj-1')
+
+    expect(result).not.toContain('### 미회수 복선')
+    expect(result).not.toContain('타 프로젝트 복선')
+  })
+
+  it('shows foreshadows for the requested projectId when multiple projects exist', () => {
+    setForeshadows([
+      makeForeshadow({ id: 'fs-a', title: '프로젝트A 복선', status: 'planted', projectId: 'proj-a' }),
+      makeForeshadow({ id: 'fs-b', title: '프로젝트B 복선', status: 'planted', projectId: 'proj-b' }),
+    ])
+
+    const chaptersA = [makeChapter({ order: 1, title: '1장', synopsis: '시놉시스', projectId: 'proj-a' })]
+    const resultA = summarizeContext(chaptersA, 'proj-a')
+    expect(resultA).toContain('프로젝트A 복선')
+    expect(resultA).not.toContain('프로젝트B 복선')
+
+    const chaptersB = [makeChapter({ order: 1, title: '1장', synopsis: '시놉시스', projectId: 'proj-b' })]
+    const resultB = summarizeContext(chaptersB, 'proj-b')
+    expect(resultB).toContain('프로젝트B 복선')
+    expect(resultB).not.toContain('프로젝트A 복선')
   })
 })

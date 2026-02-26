@@ -1,9 +1,9 @@
 /**
- * Unit tests for providers module - buildToolResultMessages.
- * Tests: OpenAI/Llama/Grok format, Anthropic format, Gemini format, unknown provider.
+ * Unit tests for providers module.
+ * Tests: buildToolResultMessages formats, safeParseArgs, humanizeError.
  */
 import { describe, it, expect } from 'vitest'
-import { buildToolResultMessages } from './providers'
+import { buildToolResultMessages, safeParseArgs, humanizeError } from './providers'
 import type { AIToolCall } from '@/types'
 
 const sampleToolCalls: AIToolCall[] = [
@@ -159,5 +159,80 @@ describe('buildToolResultMessages', () => {
       const content = messages[0].content as Array<{ type: string }>
       expect(content).toHaveLength(1)
     })
+  })
+})
+
+// ── safeParseArgs ──
+
+describe('safeParseArgs', () => {
+  it('parses valid JSON object', () => {
+    const result = safeParseArgs('{"name":"Alice","age":30}')
+    expect(result).toEqual({ name: 'Alice', age: 30 })
+  })
+
+  it('parses valid JSON with nested objects', () => {
+    const result = safeParseArgs('{"character":{"id":"c1","tags":["hero"]}}')
+    expect(result).toEqual({ character: { id: 'c1', tags: ['hero'] } })
+  })
+
+  it('returns empty object for invalid JSON', () => {
+    expect(safeParseArgs('{invalid json}')).toEqual({})
+  })
+
+  it('returns empty object for empty string', () => {
+    expect(safeParseArgs('')).toEqual({})
+  })
+
+  it('returns empty object for plain string (not JSON)', () => {
+    expect(safeParseArgs('hello')).toEqual({})
+  })
+
+  it('returns empty object for null literal', () => {
+    // JSON.parse('null') = null, not an object
+    expect(safeParseArgs('null')).toEqual({})
+  })
+
+  it('returns empty object for JSON array (not a plain object)', () => {
+    // Tool arguments are always objects, so arrays are treated as invalid
+    expect(safeParseArgs('[1,2,3]')).toEqual({})
+  })
+})
+
+// ── humanizeError ──
+
+describe('humanizeError', () => {
+  it('returns Korean message for overloaded error', () => {
+    const result = humanizeError('The API is overloaded right now')
+    expect(result).toContain('과부하')
+  })
+
+  it('returns Korean message for rate limit error', () => {
+    const result = humanizeError('rate limit exceeded')
+    expect(result).toContain('한도')
+  })
+
+  it('returns Korean message for insufficient quota', () => {
+    const result = humanizeError('insufficient_quota')
+    expect(result).toContain('크레딧')
+  })
+
+  it('returns Korean message for invalid API key', () => {
+    const result = humanizeError('invalid_api_key provided')
+    expect(result).toContain('API 키')
+  })
+
+  it('returns Korean message for authentication failure', () => {
+    const result = humanizeError('authentication failed')
+    expect(result).toContain('인증')
+  })
+
+  it('returns original message for unknown errors', () => {
+    const msg = 'some unknown error that has no mapping'
+    expect(humanizeError(msg)).toBe(msg)
+  })
+
+  it('is case-insensitive for pattern matching', () => {
+    expect(humanizeError('RATE LIMIT exceeded')).toContain('한도')
+    expect(humanizeError('Overloaded')).toContain('과부하')
   })
 })

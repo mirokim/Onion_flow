@@ -10,8 +10,8 @@ export type PanelTab = 'canvas' | 'editor' | 'wiki' | 'chapters' | 'openfiles' |
 // Inner tab types for multi-tab panels
 export interface EditorInnerTab {
   id: string
-  type: 'chapter'
-  targetId: string   // chapterId
+  type: 'chapter' | 'wiki'
+  targetId: string   // chapterId OR wikiEntryId
   label: string
   isPinned: boolean
 }
@@ -149,6 +149,7 @@ interface EditorState {
 
   // Inner tab actions
   openEditorTab: (chapterId: string, label: string) => void
+  openWikiTab: (entryId: string, title: string) => void
   closeEditorTab: (tabId: string) => void
   setActiveEditorTab: (tabId: string) => void
   reorderEditorTabs: (fromId: string, toId: string) => void
@@ -360,6 +361,19 @@ export const useEditorStore = create<EditorState>()(
         }
         // Create new tab
         const tab: EditorInnerTab = { id: generateId(), type: 'chapter', targetId: chapterId, label, isPinned: false }
+        return {
+          editorTabs: [...s.editorTabs, tab],
+          activeEditorTabId: tab.id,
+        }
+      }),
+
+      openWikiTab: (entryId, title) => set((s) => {
+        // Focus existing wiki tab if already open
+        const existing = s.editorTabs.find(t => t.type === 'wiki' && t.targetId === entryId)
+        if (existing) {
+          return { activeEditorTabId: existing.id }
+        }
+        const tab: EditorInnerTab = { id: generateId(), type: 'wiki', targetId: entryId, label: title || '새 항목', isPinned: false }
         return {
           editorTabs: [...s.editorTabs, tab],
           activeEditorTabId: tab.id,
@@ -648,7 +662,7 @@ export const useEditorStore = create<EditorState>()(
     }),
     {
       name: 'onion-flow-editor',
-      version: 18,
+      version: 19,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         theme: state.theme,
@@ -811,6 +825,12 @@ export const useEditorStore = create<EditorState>()(
         // v18: add customKeybindings
         if (version < 18) {
           persisted.customKeybindings = persisted.customKeybindings ?? {}
+        }
+        // v19: wiki is now integrated into OpenFilesPanel — remove wiki from default panelGroups
+        // (existing open wiki panels continue working; toggle button is removed from TabBar)
+        if (version < 19) {
+          // No structural change needed — wiki panels remain open if the user had them open.
+          // Newly created layouts will not include wiki by default (TabBar no longer shows it).
         }
         return persisted as EditorState
       },

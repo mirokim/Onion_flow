@@ -15,6 +15,7 @@ const mockAdapter = {
   updateConversation: vi.fn().mockResolvedValue(undefined),
   deleteConversation: vi.fn().mockResolvedValue(undefined),
   fetchMessages: vi.fn().mockResolvedValue([]),
+  insertMessage: vi.fn().mockResolvedValue(undefined),
 }
 
 vi.mock('@/db/storageAdapter', () => ({
@@ -400,6 +401,37 @@ describe('aiStore', () => {
 
     it('should have tripleMode off by default', () => {
       expect(useAIStore.getState().tripleMode).toBe(false)
+    })
+  })
+
+  // ── sendMessage with conversationId ──
+
+  describe('sendMessage with conversationId', () => {
+    it('should call insertMessage for user message when conversationId is set', async () => {
+      useAIStore.getState().updateConfig('openai', { apiKey: 'sk-test', enabled: true })
+      await useAIStore.getState().createConversation('p1', 'Test Chat')
+
+      const convId = useAIStore.getState().currentConversationId!
+      expect(convId).toBeTruthy()
+
+      await useAIStore.getState().sendMessage('Hello with conv')
+
+      // insertMessage should be called at least once for the user message
+      expect(mockAdapter.insertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'user', content: 'Hello with conv', conversationId: convId }),
+      )
+    })
+
+    it('should persist assistant response when conversationId is set', async () => {
+      useAIStore.getState().updateConfig('openai', { apiKey: 'sk-test', enabled: true })
+      await useAIStore.getState().createConversation('p1', 'Test Chat')
+
+      await useAIStore.getState().sendMessage('Hello')
+
+      // insertMessage should be called for both user and assistant messages
+      const calls = mockAdapter.insertMessage.mock.calls.map((c: [{ role: string }]) => c[0].role)
+      expect(calls).toContain('user')
+      expect(calls).toContain('assistant')
     })
   })
 })

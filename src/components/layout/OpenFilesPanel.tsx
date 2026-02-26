@@ -3,11 +3,13 @@
  * Toolbar with creation/sort/expand actions + recursive tree view.
  * Right-click context menu for file operations.
  * Supports node types: folder, canvas, chapter, volume.
+ * Also shows a Wiki section at the bottom for quick access to wiki entries.
  */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useEditorStore, type FileTreeNode } from '@/stores/editorStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useCanvasStore } from '@/stores/canvasStore'
+import { useWikiStore } from '@/stores/wikiStore'
 import {
   Folder, FolderOpen, FolderPlus, LayoutGrid, FileText, Plus,
   ArrowDownAZ, ArrowDownWideNarrow, ChevronsUpDown, ChevronsDownUp,
@@ -508,14 +510,22 @@ export function OpenFilesPanel() {
   const expandAllFolders = useEditorStore(s => s.expandAllFolders)
   const collapseAllFolders = useEditorStore(s => s.collapseAllFolders)
   const openCanvasTab = useEditorStore(s => s.openCanvasTab)
+  const openWikiTab = useEditorStore(s => s.openWikiTab)
+  const openTabs = useEditorStore(s => s.openTabs)
+  const toggleTab = useEditorStore(s => s.toggleTab)
+  const activatePanel = useEditorStore(s => s.activatePanel)
 
   const chapters = useProjectStore(s => s.chapters)
   const createChapter = useProjectStore(s => s.createChapter)
   const currentProject = useProjectStore(s => s.currentProject)
   const selectChapter = useProjectStore(s => s.selectChapter)
 
+  const wikiEntries = useWikiStore(s => s.entries)
+  const createWikiEntry = useWikiStore(s => s.createEntry)
+
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [renamingNodeId, setRenamingNodeId] = useState<string | null>(null)
+  const [wikiExpanded, setWikiExpanded] = useState(true)
 
   useEffect(() => {
     syncFileTreeWithTabs()
@@ -581,6 +591,18 @@ export function OpenFilesPanel() {
   const handleContextMenuClose = useCallback(() => setContextMenu(null), [])
   const handleContextMenuRename = useCallback((nodeId: string) => setRenamingNodeId(nodeId), [])
   const handleRenamingDone = useCallback(() => setRenamingNodeId(null), [])
+
+  const handleOpenWikiEntry = useCallback((entryId: string, title: string) => {
+    openWikiTab(entryId, title)
+    if (!openTabs.includes('editor')) toggleTab('editor')
+    else activatePanel('editor')
+  }, [openWikiTab, openTabs, toggleTab, activatePanel])
+
+  const handleNewWikiEntry = useCallback(async () => {
+    if (!currentProject) { toast.warning('프로젝트를 먼저 생성하세요.'); return }
+    const entry = await createWikiEntry(currentProject.id, 'other', '')
+    handleOpenWikiEntry(entry.id, entry.title || '새 항목')
+  }, [currentProject, createWikiEntry, handleOpenWikiEntry])
 
   return (
     <div className="flex flex-col h-full bg-bg-primary">
@@ -653,6 +675,97 @@ export function OpenFilesPanel() {
           onClose={handleContextMenuClose}
           onRename={handleContextMenuRename}
         />
+      )}
+
+      {/* ── Wiki Section ── */}
+      <WikiSection
+        entries={wikiEntries}
+        activeWikiEntryId={
+          editorTabs.find(t => t.id === activeEditorTabId && t.type === 'wiki')?.targetId ?? null
+        }
+        expanded={wikiExpanded}
+        onToggle={() => setWikiExpanded(prev => !prev)}
+        onOpenEntry={handleOpenWikiEntry}
+        onNewEntry={handleNewWikiEntry}
+      />
+    </div>
+  )
+}
+
+/* ── WikiSection ── */
+
+function WikiSection({
+  entries,
+  activeWikiEntryId,
+  expanded,
+  onToggle,
+  onOpenEntry,
+  onNewEntry,
+}: {
+  entries: { id: string; title: string; category: string }[]
+  activeWikiEntryId: string | null
+  expanded: boolean
+  onToggle: () => void
+  onOpenEntry: (entryId: string, title: string) => void
+  onNewEntry: () => void
+}) {
+  const sortedEntries = useMemo(
+    () => [...entries].sort((a, b) => a.title.localeCompare(b.title, 'ko')),
+    [entries],
+  )
+
+  return (
+    <div className="border-t border-border shrink-0">
+      {/* Section header */}
+      <div className="flex items-center gap-1 px-1.5 py-1 text-[10px] text-text-muted uppercase tracking-wide select-none">
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-1 flex-1 hover:text-text-secondary transition"
+        >
+          {expanded
+            ? <ChevronDown className="w-3 h-3 shrink-0" />
+            : <ChevronRight className="w-3 h-3 shrink-0" />}
+          <span>Wiki</span>
+          {entries.length > 0 && (
+            <span className="ml-0.5 opacity-60">({entries.length})</span>
+          )}
+        </button>
+        <button
+          onClick={onNewEntry}
+          className="p-0.5 rounded hover:bg-bg-hover hover:text-accent transition"
+          title="새 위키 항목"
+        >
+          <Plus className="w-3 h-3" />
+        </button>
+      </div>
+
+      {/* Entry list */}
+      {expanded && (
+        <div className="max-h-48 overflow-y-auto">
+          {sortedEntries.length === 0 ? (
+            <div className="px-3 py-2 text-center text-text-muted text-[10px]">
+              위키 항목이 없습니다
+            </div>
+          ) : (
+            sortedEntries.map(entry => (
+              <div
+                key={entry.id}
+                onClick={() => onOpenEntry(entry.id, entry.title)}
+                className={cn(
+                  'flex items-center gap-1.5 px-2 py-1.5 cursor-pointer transition-colors text-xs',
+                  entry.id === activeWikiEntryId
+                    ? 'bg-bg-hover/60 text-text-primary'
+                    : 'hover:bg-bg-hover text-text-primary',
+                )}
+                style={{ paddingLeft: '24px' }}
+                title={entry.title}
+              >
+                <BookOpen className="w-3.5 h-3.5 shrink-0 text-text-muted" />
+                <span className="truncate flex-1">{entry.title || '(제목 없음)'}</span>
+              </div>
+            ))
+          )}
+        </div>
       )}
     </div>
   )

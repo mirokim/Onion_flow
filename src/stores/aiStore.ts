@@ -7,6 +7,7 @@ import { getAdapter } from '@/db/storageAdapter'
 import { callWithTools, buildToolResultMessages, fetchProviderModels, humanizeError, type ProviderResponse } from '@/ai/providers'
 import { executeTool } from '@/ai/toolExecutor'
 import { buildChatSystemPrompt } from '@/ai/chatSystemPrompt'
+import { pruneHistoryMessages, MAX_HISTORY_MESSAGES } from '@/ai/messageUtils'
 
 interface AIState {
   configs: Record<AIProvider, AIConfig>
@@ -467,16 +468,24 @@ async function sendToProvider(
     // Build system prompt with project context
     const systemPrompt = projectId ? buildChatSystemPrompt(projectId, provider, config.model) : '당신은 소설 집필을 돕는 AI 어시스턴트입니다.'
 
-    // Build API messages from conversation history
+    // Build API messages from conversation history (pruned to MAX_HISTORY_MESSAGES)
     const apiMessages: { role: string; content: string | unknown[] | null; [key: string]: unknown }[] = [
       { role: 'system', content: systemPrompt },
     ]
 
-    for (const msg of get().messages) {
+    // Prune history to avoid exceeding Input Tokens per Minute limits
+    const recentMessages = pruneHistoryMessages(get().messages, MAX_HISTORY_MESSAGES)
+
+    // Track the most recent assistant tool calls so Gemini can match function names
+    // in tool result messages (Gemini's functionResponse requires the function name).
+    let lastAssistantToolCalls: AIToolCall[] = []
+
+    for (const msg of recentMessages) {
       if (msg.role === 'user' || msg.role === 'assistant') {
         const apiMsg: Record<string, unknown> = { role: msg.role, content: msg.content }
         // Include tool calls in assistant messages per provider format
         if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+          lastAssistantToolCalls = msg.toolCalls
           if (provider === 'openai' || provider === 'llama' || provider === 'grok') {
             apiMsg.tool_calls = msg.toolCalls.map(tc => ({
               id: tc.id,
@@ -498,9 +507,10 @@ async function sendToProvider(
         }
         apiMessages.push(apiMsg as typeof apiMessages[0])
       } else if (msg.role === 'tool' && msg.toolResults) {
-        // Rebuild tool result messages
+        // Rebuild tool result messages.
+        // Pass lastAssistantToolCalls so Gemini can look up function names by tool call ID.
         const results = msg.toolResults.map(tr => ({ toolCallId: tr.toolCallId, result: tr.result }))
-        const toolMsgs = buildToolResultMessages(provider, [], results)
+        const toolMsgs = buildToolResultMessages(provider, lastAssistantToolCalls, results)
         apiMessages.push(...toolMsgs)
       }
     }
